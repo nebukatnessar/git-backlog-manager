@@ -5,3 +5,4 @@ export * from "./BugsPanel";
 export * from "./MetricsBar";
 export * from "./IssueLink";
 export * from "./WorkItemDetail";
+export * from "./AIAssistantPanel";

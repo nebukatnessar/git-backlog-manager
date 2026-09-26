@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { Avatar, Box, Button, Chip, CircularProgress, Divider, Paper, Stack, TextField, Typography } from "@mui/material";
 import { ArrowBack, BugReport, Edit, FolderOpen, Save, TaskAlt } from "@mui/icons-material";
 import { type WorkItem } from "../../src/shared/workItems";
+import { AIAssistantPanel } from "./AIAssistantPanel";
 
 interface WorkItemDetailProps {
   workItem: WorkItem | null;
@@ -10,6 +11,8 @@ interface WorkItemDetailProps {
   repo: string;
   onBack: () => void;
   onSave: (issueNumber: number, body: string) => Promise<void>;
+  allEpics?: Array<{ slug: string; title: string; body?: string }>;
+  allFeatures?: Array<{ slug: string; title: string; body?: string; epicSlug?: string }>;
 }
 
 function getTypeIcon(type: string | undefined): React.JSX.Element {
@@ -38,11 +41,35 @@ function getTypeLabel(type: string | undefined): string {
   }
 }
 
-export function WorkItemDetail({ workItem, owner, repo, onBack, onSave }: WorkItemDetailProps): React.JSX.Element {
+export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics = [], allFeatures = [] }: WorkItemDetailProps): React.JSX.Element {
   const [isEditing, setIsEditing] = useState(false);
   const [editBody, setEditBody] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [repositoryReadme, setRepositoryReadme] = useState("");
+  const [loadingReadme, setLoadingReadme] = useState(false);
+
+  // Fetch repository README when component mounts or repo changes
+  useEffect(() => {
+    if (!owner || !repo) return;
+    
+    const fetchReadme = async () => {
+      setLoadingReadme(true);
+      try {
+        const response = await fetch(`/api/repos/${encodeURIComponent(repo)}/readme?owner=${encodeURIComponent(owner)}`);
+        const data = await response.json();
+        if (data.readme) {
+          setRepositoryReadme(data.readme);
+        }
+      } catch (error) {
+        console.warn("Could not fetch README:", error);
+      } finally {
+        setLoadingReadme(false);
+      }
+    };
+    
+    void fetchReadme();
+  }, [owner, repo]);
 
   if (!workItem) {
     return (
@@ -86,6 +113,12 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave }: WorkIt
     }
   }, [onSave, workItem.number, editBody]);
 
+  const handleApplyAISuggestion = useCallback((updatedDescription: string) => {
+    if (isEditing) {
+      setEditBody(updatedDescription);
+    }
+  }, [isEditing]);
+
   return (
     <Box>
       <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
@@ -119,118 +152,134 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave }: WorkIt
         />
       </Stack>
 
-      <Paper variant="outlined" sx={{ p: 3, borderColor: "divider", mb: 3 }}>
-        <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
-          <Avatar sx={{ width: 48, height: 48, bgcolor: type === "epic" ? "#3c3020" : type === "bug" ? "#4a1d1d" : "#1d3733", color: type === "epic" ? "secondary.main" : type === "bug" ? "error.main" : "primary.main" }}>
-            {getTypeIcon(type)}
-          </Avatar>
-          <Box>
-            <Typography variant="h4" fontWeight={700}>
-              #{workItem.number} {workItem.title}
-            </Typography>
-            <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
-              {type && (
-                <Chip label={`type: ${type}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
-              )}
-              {status && (
-                <Chip label={`status: ${status}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
-              )}
-              {priority && (
-                <Chip label={`priority: ${priority}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
-              )}
-              {epicSlug && (
-                <Chip label={`epic: ${epicSlug}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
-              )}
-              {featureSlug && (
-                <Chip label={`feature: ${featureSlug}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
-              )}
-              {taskSlug && (
-                <Chip label={`task: ${taskSlug}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
-              )}
-            </Stack>
-          </Box>
-        </Stack>
+      <Stack direction={{ xs: "column", lg: "row" }} spacing={3} alignItems="flex-start">
+        <Paper variant="outlined" sx={{ p: 3, borderColor: "divider", flex: 1, width: "100%" }}>
+          <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
+            <Avatar sx={{ width: 48, height: 48, bgcolor: type === "epic" ? "#3c3020" : type === "bug" ? "#4a1d1d" : "#1d3733", color: type === "epic" ? "secondary.main" : type === "bug" ? "error.main" : "primary.main" }}>
+              {getTypeIcon(type)}
+            </Avatar>
+            <Box>
+              <Typography variant="h4" fontWeight={700}>
+                #{workItem.number} {workItem.title}
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+                {type && (
+                  <Chip label={`type: ${type}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
+                )}
+                {status && (
+                  <Chip label={`status: ${status}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
+                )}
+                {priority && (
+                  <Chip label={`priority: ${priority}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
+                )}
+                {epicSlug && (
+                  <Chip label={`epic: ${epicSlug}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
+                )}
+                {featureSlug && (
+                  <Chip label={`feature: ${featureSlug}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
+                )}
+                {taskSlug && (
+                  <Chip label={`task: ${taskSlug}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
+                )}
+              </Stack>
+            </Box>
+          </Stack>
 
-        <Divider sx={{ my: 2, borderColor: "divider" }} />
+          <Divider sx={{ my: 2, borderColor: "divider" }} />
 
-        <Typography variant="h6" sx={{ mb: 2 }}>Description</Typography>
-        {saveError && (
-          <Typography color="error" sx={{ mb: 2 }}>{saveError}</Typography>
-        )}
-        {isEditing ? (
-          <TextField
-            fullWidth
-            multiline
-            rows={10}
-            value={editBody}
-            onChange={(e) => setEditBody(e.target.value)}
-            variant="outlined"
-            sx={{
-              bgcolor: "background.paper",
-              borderRadius: 1,
-              borderColor: "divider",
-              mb: 2,
-            }}
-            InputProps={{
-              sx: {
-                fontFamily: "monospace",
-                fontSize: "0.875rem",
-              },
-            }}
-          />
-        ) : workItem.body ? (
-          <Box
-            sx={{
-              p: 2,
-              bgcolor: "background.paper",
-              borderRadius: 1,
-              border: "1px solid",
-              borderColor: "divider",
-            }}
-          >
-            <ReactMarkdown
-              components={{
-                p: ({ children }) => <Typography sx={{ mb: 1, fontSize: "0.875rem", color: "text.primary" }}>{children}</Typography>,
-                h1: ({ children }) => <Typography variant="h4" sx={{ mt: 2, mb: 1 }}>{children}</Typography>,
-                h2: ({ children }) => <Typography variant="h5" sx={{ mt: 2, mb: 1 }}>{children}</Typography>,
-                h3: ({ children }) => <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>{children}</Typography>,
-                ul: ({ children }) => <Box component="ul" sx={{ pl: 2, m: 0 }}>{children}</Box>,
-                ol: ({ children }) => <Box component="ol" sx={{ pl: 2, m: 0 }}>{children}</Box>,
-                li: ({ children }) => <Typography component="li" sx={{ fontSize: "0.875rem", color: "text.primary" }}>{children}</Typography>,
-                code: ({ children }) => <Box component="code" sx={{ fontFamily: "monospace", fontSize: "0.875rem", bgcolor: "action.selected", px: 0.5, borderRadius: 0.5 }}>{children}</Box>,
-                pre: ({ children }) => <Box sx={{ bgcolor: "#1d1d1d", p: 2, borderRadius: 1, overflow: "auto", my: 1 }}><code>{children}</code></Box>,
-                a: ({ children, href }) => <Typography component="a" href={href} sx={{ color: "primary.main", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>{children}</Typography>,
+          <Typography variant="h6" sx={{ mb: 2 }}>Description</Typography>
+          {saveError && (
+            <Typography color="error" sx={{ mb: 2 }}>{saveError}</Typography>
+          )}
+          {isEditing ? (
+            <TextField
+              fullWidth
+              multiline
+              rows={10}
+              value={editBody}
+              onChange={(e) => setEditBody(e.target.value)}
+              variant="outlined"
+              sx={{
+                bgcolor: "background.paper",
+                borderRadius: 1,
+                borderColor: "divider",
+                mb: 2,
+              }}
+              InputProps={{
+                sx: {
+                  fontFamily: "monospace",
+                  fontSize: "0.875rem",
+                },
+              }}
+            />
+          ) : workItem.body ? (
+            <Box
+              sx={{
+                p: 2,
+                bgcolor: "background.paper",
+                borderRadius: 1,
+                border: "1px solid",
+                borderColor: "divider",
               }}
             >
-              {workItem.body}
-            </ReactMarkdown>
+              <ReactMarkdown
+                components={{
+                  p: ({ children }) => <Typography sx={{ mb: 1, fontSize: "0.875rem", color: "text.primary" }}>{children}</Typography>,
+                  h1: ({ children }) => <Typography variant="h4" sx={{ mt: 2, mb: 1 }}>{children}</Typography>,
+                  h2: ({ children }) => <Typography variant="h5" sx={{ mt: 2, mb: 1 }}>{children}</Typography>,
+                  h3: ({ children }) => <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>{children}</Typography>,
+                  ul: ({ children }) => <Box component="ul" sx={{ pl: 2, m: 0 }}>{children}</Box>,
+                  ol: ({ children }) => <Box component="ol" sx={{ pl: 2, m: 0 }}>{children}</Box>,
+                  li: ({ children }) => <Typography component="li" sx={{ fontSize: "0.875rem", color: "text.primary" }}>{children}</Typography>,
+                  code: ({ children }) => <Box component="code" sx={{ fontFamily: "monospace", fontSize: "0.875rem", bgcolor: "action.selected", px: 0.5, borderRadius: 0.5 }}>{children}</Box>,
+                  pre: ({ children }) => <Box sx={{ bgcolor: "#1d1d1d", p: 2, borderRadius: 1, overflow: "auto", my: 1 }}><code>{children}</code></Box>,
+                  a: ({ children, href }) => <Typography component="a" href={href} sx={{ color: "primary.main", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>{children}</Typography>,
+                }}
+              >
+                {workItem.body}
+              </ReactMarkdown>
+            </Box>
+          ) : (
+            <Typography color="text.secondary" sx={{ fontStyle: "italic" }}>
+              No description provided
+            </Typography>
+          )}
+
+          <Divider sx={{ my: 2, borderColor: "divider" }} />
+
+          <Box>
+            <Typography variant="body2" color="text.secondary">
+              Repository: {owner}/{repo}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              State: {workItem.state}
+            </Typography>
+            <Button
+              variant="outlined"
+              href={workItem.html_url}
+              target="_blank"
+              rel="noreferrer"
+              sx={{ mt: 2 }}
+            >
+              View on GitHub
+            </Button>
           </Box>
-        ) : (
-          <Typography color="text.secondary" sx={{ fontStyle: "italic" }}>
-            No description provided
-          </Typography>
-        )}
+        </Paper>
 
-        <Divider sx={{ my: 2, borderColor: "divider" }} />
-
-        <Box>
-          <Typography variant="body2" color="text.secondary">
-            Repository: {owner}/{repo}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            State: {workItem.state}
-          </Typography>
-          <Button
-            variant="outlined"
-            href={workItem.html_url}
-            target="_blank"
-            rel="noreferrer"
-            sx={{ mt: 2 }}
-          >
-            View on GitHub
-          </Button>
+        {/* AI Assistant Panel - on the right side */}
+        <Box sx={{ width: { lg: 360 }, flexShrink: 0 }}>
+          <AIAssistantPanel
+            description={isEditing ? editBody : (workItem.body || "")}
+            additionalContext={{
+              workItemTitle: workItem.title,
+              parentEpic: epicSlug ? allEpics.find(e => e.slug === epicSlug) : undefined,
+              parentFeature: featureSlug ? allFeatures.find(f => f.slug === featureSlug && f.epicSlug === epicSlug) : undefined,
+              repositoryReadme: repositoryReadme || undefined,
+            }}
+            onApplySuggestion={handleApplyAISuggestion}
+          />
         </Box>
-      </Paper>
+      </Stack>
     </Box>
   );
 }

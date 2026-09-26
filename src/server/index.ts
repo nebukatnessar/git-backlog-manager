@@ -139,6 +139,31 @@ async function fetchIssueById(owner: string, repo: string, issueId: number, toke
   return issue;
 }
 
+async function fetchRepositoryReadme(owner: string, repo: string, token: string): Promise<string> {
+  const url = new URL(`https://api.github.com/repos/${owner}/${repo}/readme`);
+
+  const response = await fetch(url, { headers: githubHeaders(token) });
+  if (!response.ok) {
+    // If README doesn't exist, return empty string (not an error)
+    if (response.status === 404) return "";
+    throw new GitHubApiError(response.status, await response.text());
+  }
+
+  interface ReadmeResponse {
+    content: string;
+    encoding: string;
+  }
+
+  const data = (await response.json()) as ReadmeResponse;
+  
+  // Decode base64 content
+  if (data.encoding === "base64") {
+    return Buffer.from(data.content, "base64").toString("utf-8");
+  }
+  
+  return data.content;
+}
+
 async function updateGitHubIssue(owner: string, repo: string, issueId: number, token: string, body: string): Promise<GitHubIssue> {
   const url = new URL(`https://api.github.com/repos/${owner}/${repo}/issues/${issueId}`);
 
@@ -154,6 +179,105 @@ async function updateGitHubIssue(owner: string, repo: string, issueId: number, t
   if (issue.pull_request) throw new GitHubApiError(404, "Issue is a pull request");
 
   return issue;
+}
+
+// AI Assistant - System instruction
+const AI_SYSTEM_INSTRUCTION = `
+You are an expert Agile Product Owner and writing assistant built directly into a work-item editor.
+Your task is to help the user refine, detail, and polish their work item description.
+
+RULES:
+1. Ground your suggestions in the current description and all context provided.
+2. When the user asks for suggestions or improvements, offer 2-3 specific options or actionable questions (e.g., acceptance criteria, edge cases, scope constraints).
+3. Whenever you propose an updated version of the description, wrap the complete, updated text inside a triple-backtick markdown block tagged with \`work_item_update\` like this:
+
+\`\`\`work_item_update
+[Refined text goes here...]
+\`\`\`
+
+4. Keep chat responses concise, helpful, and collaborative.
+`;
+
+async function getAIResponse(
+  prompt: string, 
+  context: string, 
+  history: Array<{ role: string; content: string }>,
+  additionalContext: { workItemTitle?: string; parentEpic?: { title: string; description: string }; parentFeature?: { title: string; description: string }; repositoryReadme?: string } = {}
+): Promise<string> {
+  const apiKey = process.env.MISTRAL_API_KEY || "";
+  if (!apiKey) {
+    throw new Error("MISTRAL_API_KEY is not configured in the server environment.");
+  }
+
+  // Build enriched context for the AI
+  const contextParts: string[] = [];
+  
+  if (additionalContext.workItemTitle) {
+    contextParts.push(`[WORK ITEM TITLE]: ${additionalContext.workItemTitle}`);
+  }
+  
+  if (additionalContext.parentEpic) {
+    contextParts.push(`[PARENT EPIC]: ${additionalContext.parentEpic.title}`);
+    if (additionalContext.parentEpic.description) {
+      contextParts.push(`[EPIC DESCRIPTION]: ${additionalContext.parentEpic.description}`);
+    }
+  }
+  
+  if (additionalContext.parentFeature) {
+    contextParts.push(`[PARENT FEATURE]: ${additionalContext.parentFeature.title}`);
+    if (additionalContext.parentFeature.description) {
+      contextParts.push(`[FEATURE DESCRIPTION]: ${additionalContext.parentFeature.description}`);
+    }
+  }
+  
+  if (additionalContext.repositoryReadme) {
+    contextParts.push(`[REPOSITORY README]:\n${additionalContext.repositoryReadme}`);
+  }
+  
+  contextParts.push(`[CURRENT WORK ITEM DESCRIPTION]:\n${context || "(Empty)"}`);
+  
+  const fullContext = contextParts.join("\n\n");
+
+  const messages = [
+    {
+      role: "system",
+      content: `${AI_SYSTEM_INSTRUCTION}\n\n${fullContext}`,
+    },
+    ...history.map((msg) => ({
+      role: msg.role === "model" ? "assistant" : "user",
+      content: msg.content,
+    })),
+    { role: "user", content: prompt },
+  ];
+
+  const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: process.env.MISTRAL_MODEL || "mistral-large-latest",
+      messages,
+      temperature: 0.4,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Mistral API error: ${response.status} - ${errorText}`);
+  }
+
+  interface AiResponse {
+    choices?: Array<{
+      message?: {
+        content?: string;
+      };
+    }>;
+  }
+
+  const data: AiResponse = await response.json();
+  return data.choices?.[0]?.message?.content || "Sorry, I couldn't process that.";
 }
 
 async function fetchRepositories(owner: string, token: string): Promise<GitHubRepository[]> {
@@ -181,12 +305,31 @@ async function fetchRepositories(owner: string, token: string): Promise<GitHubRe
 
 app.use(express.static(path.join(__dirname, "../../public")));
 
+// Middleware to parse JSON
+app.use(express.json());
+
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
 app.get("/api/config", (_req: Request, res: Response) => {
   res.json({ owner: process.env.GITHUB_OWNER || "" });
+});
+
+app.post("/api/ai/suggest", async (req: Request, res: Response) => {
+  const { prompt, context, history, additionalContext } = req.body || {};
+
+  if (!prompt) {
+    return res.status(400).json({ error: "Prompt is required." });
+  }
+
+  try {
+    const aiResponse = await getAIResponse(prompt, context || "", history || [], additionalContext || {});
+    return res.json({ response: aiResponse });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ error: message });
+  }
 });
 
 app.get("/api/repos", async (req: Request, res: Response) => {
@@ -205,6 +348,29 @@ app.get("/api/repos", async (req: Request, res: Response) => {
     const message = error instanceof Error ? error.message : String(error);
     return res.status(apiError?.statusCode || 500).json({
       error: "Failed to load repositories from GitHub.",
+      details: apiError?.details || message,
+    });
+  }
+});
+
+app.get("/api/repos/:repo/readme", async (req: Request, res: Response) => {
+  const owner = String(req.query.owner || process.env.GITHUB_OWNER || "").trim();
+  const repo = String(req.params.repo).trim();
+  const token = resolveToken(req);
+
+  if (!owner || !repo || !isValidRepoPart(owner) || !isValidRepoPart(repo)) {
+    return res.status(400).json({ error: "Provide valid owner and repo parameters." });
+  }
+  if (!token) return res.status(401).json({ error: "No GitHub token configured." });
+
+  try {
+    const readme = await fetchRepositoryReadme(owner, repo, token);
+    return res.json({ readme });
+  } catch (error) {
+    const apiError = error instanceof GitHubApiError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(apiError?.statusCode || 500).json({
+      error: "Failed to load repository README.",
       details: apiError?.details || message,
     });
   }
