@@ -194,3 +194,8 @@ anything but WebDaw).
 - `GET /api/agent/check` — validate `GITHUB_PAT` against the GitHub REST API
   and MCP server; returns `{ ok, step, message, login }` and pinpoints which
   side rejects the token
+- `GET /api/token/check` — validate the **app token** (`GITHUB_TOKEN` or
+  `GITHUB_PAT`) against the GitHub REST API; reports which env var is in use,
+  a masked fingerprint (first/last 4 chars + length), and the login it
+  resolves to. Use this when API calls fail with `401 Bad credentials` to see
+  exactly which token the server is actually sending.

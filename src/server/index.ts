@@ -459,6 +459,49 @@ app.post("/api/ai/suggest", async (req: Request, res: Response) => {
   }
 });
 
+function tokenSource(req: Request): { source: "authorization-header" | "GITHUB_TOKEN" | "GITHUB_PAT" | "none"; masked: string } {
+  const authHeader = req.get("authorization") || "";
+  const headerToken = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
+  if (headerToken) return { source: "authorization-header", masked: maskToken(headerToken) };
+  if (process.env.GITHUB_TOKEN) return { source: "GITHUB_TOKEN", masked: maskToken(process.env.GITHUB_TOKEN) };
+  if (process.env.GITHUB_PAT) return { source: "GITHUB_PAT", masked: maskToken(process.env.GITHUB_PAT) };
+  return { source: "none", masked: "" };
+}
+
+function maskToken(token: string): string {
+  if (token.length <= 8) return `${token.slice(0, 2)}...`;
+  return `${token.slice(0, 4)}...${token.slice(-4)} (len ${token.length})`;
+}
+
+app.get("/api/token/check", async (req: Request, res: Response) => {
+  const info = tokenSource(req);
+  const token = resolveToken(req);
+  if (!token) {
+    return res.json({ configured: false, source: info.source, masked: info.masked, message: "No GitHub token configured. Set GITHUB_TOKEN or GITHUB_PAT." });
+  }
+
+  try {
+    const rest = await fetch("https://api.github.com/user", {
+      headers: { Authorization: `Bearer ${token}`, "User-Agent": "git-backlog-manager", Accept: "application/vnd.github+json" },
+    });
+    if (!rest.ok) {
+      const body = await rest.text();
+      return res.status(400).json({
+        configured: true,
+        source: info.source,
+        masked: info.masked,
+        valid: false,
+        message: `GitHub REST API rejected the ${info.source} token (status ${rest.status}): ${body.slice(0, 300)}`,
+      });
+    }
+    const user = (await rest.json()) as { login?: string };
+    return res.json({ configured: true, source: info.source, masked: info.masked, valid: true, login: user.login });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ configured: true, source: info.source, masked: info.masked, valid: false, message });
+  }
+});
+
 app.get("/api/repos", async (req: Request, res: Response) => {
   const owner = String(req.query.owner || process.env.GITHUB_OWNER || "").trim();
   const token = resolveToken(req);
