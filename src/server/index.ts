@@ -13,6 +13,32 @@ import {
   validateCreateWorkItem,
   type GitHubIssue,
 } from "../shared/workItems";
+import {
+  AGENT_CONVERSATION_MARKER,
+  buildAgentQuestionsComment,
+  parseAgentQuestions,
+  withAgentAnswers,
+  type AgentQuestion,
+} from "../shared/agentQuestions";
+import {
+  addIssueLabels,
+  ensureLabelsExist as ensureGitHubLabelsExist,
+  fetchIssueComments,
+  removeIssueLabel,
+  updateIssueComment,
+} from "./github";
+import { labelColor as agentLabelColor } from "./agentLabels";
+import { ensureImplementAgent, loadAgentPrompt } from "./mistralAgents";
+import {
+  AGENT_RUN_BUDGET_MS,
+  MAX_CONCURRENT_AGENT_RUNS,
+  activeRunCount,
+  getLatestRun,
+  hasInProgressLabel,
+  isEligibleForImplementation,
+  reapExpiredRuns,
+  startAgentRun,
+} from "./implementAgent";
 
 const PORT = Number(process.env.PORT || 3000);
 const app = express();
@@ -694,6 +720,160 @@ app.post("/api/repos/:repo/issues/:issueNumber/conversation", async (req: Reques
       details: apiError?.details || message,
     });
   }
+});
+
+// Implement agent endpoints
+
+interface AgentBootstrap {
+  agentId: string;
+  connectorId: string;
+}
+
+let agentBootstrap: AgentBootstrap | null = null;
+
+async function getImplementAgent(token: string): Promise<AgentBootstrap> {
+  const mistralApiKey = process.env.MISTRAL_API_KEY || "";
+  if (!mistralApiKey) throw new Error("MISTRAL_API_KEY is not configured in the server environment.");
+  const githubPat = process.env.GITHUB_PAT || token;
+  if (!githubPat) throw new Error("No GitHub token available. Set GITHUB_PAT or GITHUB_TOKEN.");
+
+  if (!agentBootstrap) {
+    agentBootstrap = await ensureImplementAgent(mistralApiKey, githubPat, projectDir);
+  }
+  return agentBootstrap;
+}
+
+function resolveIssueTarget(req: Request): { owner: string; repo: string; issueNumber: number } | { error: string } {
+  const owner = String(req.query.owner || req.body?.owner || process.env.GITHUB_OWNER || "").trim();
+  const repo = String(req.params.repo || req.query.repo || req.body?.repo || "").trim();
+  const issueNumber = Number(req.params.issueNumber || req.query.issueNumber);
+
+  if (!owner || !isValidRepoPart(owner) || !repo || !isValidRepoPart(repo)) {
+    return { error: "Provide valid owner and repo parameters." };
+  }
+  if (!issueNumber || issueNumber <= 0) {
+    return { error: "Provide a valid issue number." };
+  }
+  return { owner, repo, issueNumber };
+}
+
+app.post("/api/repos/:repo/issues/:issueNumber/implement", async (req: Request, res: Response) => {
+  const target = resolveIssueTarget(req);
+  if ("error" in target) return res.status(400).json({ error: target.error });
+  const { owner, repo, issueNumber } = target;
+
+  const token = resolveToken(req);
+  if (!token) return res.status(401).json({ error: "No GitHub token configured." });
+
+  try {
+    const issue = await fetchIssueById(owner, repo, issueNumber, token);
+    if (!isEligibleForImplementation(issue)) {
+      return res.status(409).json({ error: "Issue needs both type:task and actionable:ready labels to be implemented." });
+    }
+    if (hasInProgressLabel(issue)) {
+      return res.status(409).json({ error: "An agent run is already in progress for this issue." });
+    }
+
+    const bootstrap = await getImplementAgent(token);
+    const run = await startAgentRun(process.env.MISTRAL_API_KEY || "", bootstrap.agentId, process.env.GITHUB_PAT || token, owner, repo, issueNumber);
+    return res.status(202).json({ run });
+  } catch (error) {
+    const apiError = error instanceof GitHubApiError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(apiError?.statusCode || 500).json({
+      error: "Failed to start agent run.",
+      details: apiError?.details || message,
+    });
+  }
+});
+
+app.get("/api/repos/:repo/issues/:issueNumber/agent-run", async (req: Request, res: Response) => {
+  const target = resolveIssueTarget(req);
+  if ("error" in target) return res.status(400).json({ error: target.error });
+  const { owner, repo, issueNumber } = target;
+
+  const token = resolveToken(req);
+  if (!token) return res.status(401).json({ error: "No GitHub token configured." });
+
+  try {
+    reapExpiredRuns();
+    const issue = await fetchIssueById(owner, repo, issueNumber, token);
+    const run = getLatestRun(owner, repo, issueNumber);
+
+    const comments = await fetchIssueComments(token, owner, repo, issueNumber);
+    const questionsComment = [...comments]
+      .reverse()
+      .find((comment) => comment.body.includes(AGENT_CONVERSATION_MARKER));
+    const questions = questionsComment ? parseAgentQuestions(questionsComment.body) : [];
+
+    return res.json({
+      run: run || null,
+      eligibility: {
+        isTask: (issue.labels || []).some((label) => (typeof label === "string" ? label : label.name)?.toLowerCase() === "type:task"),
+        actionable: (issue.labels || []).map((label) => (typeof label === "string" ? label : label.name)).find((label) => String(label).toLowerCase().startsWith("actionable:")) || "",
+        inProgress: hasInProgressLabel(issue),
+      },
+      questions,
+      questionsCommentId: questionsComment?.id || null,
+      concurrency: { activeRuns: activeRunCount(), maxRuns: MAX_CONCURRENT_AGENT_RUNS },
+      budgetMs: AGENT_RUN_BUDGET_MS,
+    });
+  } catch (error) {
+    const apiError = error instanceof GitHubApiError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(apiError?.statusCode || 500).json({
+      error: "Failed to load agent run status.",
+      details: apiError?.details || message,
+    });
+  }
+});
+
+app.post("/api/repos/:repo/issues/:issueNumber/answers", async (req: Request, res: Response) => {
+  const target = resolveIssueTarget(req);
+  if ("error" in target) return res.status(400).json({ error: target.error });
+  const { owner, repo, issueNumber } = target;
+
+  const token = resolveToken(req);
+  if (!token) return res.status(401).json({ error: "No GitHub token configured." });
+
+  const answers: unknown = req.body?.answers;
+  if (!Array.isArray(answers) || answers.some((answer) => typeof answer !== "string")) {
+    return res.status(400).json({ error: "Provide answers as an array of strings." });
+  }
+
+  try {
+    const comments = await fetchIssueComments(token, owner, repo, issueNumber);
+    const questionsComment = [...comments]
+      .reverse()
+      .find((comment) => comment.body.includes(AGENT_CONVERSATION_MARKER));
+    if (!questionsComment) {
+      return res.status(404).json({ error: "No agent questions comment found on this issue." });
+    }
+
+    const questions: AgentQuestion[] = parseAgentQuestions(questionsComment.body);
+    const updated = withAgentAnswers(questions, answers as string[]);
+    if (!updated.some((question) => question.answers.length > 0)) {
+      return res.status(400).json({ error: "Provide at least one non-empty answer." });
+    }
+
+    await updateIssueComment(token, owner, repo, questionsComment.id, buildAgentQuestionsComment(updated));
+    await ensureGitHubLabelsExist(token, owner, repo, ["actionable:ready", "actionable:rejected"], agentLabelColor);
+    await addIssueLabels(token, owner, repo, issueNumber, ["actionable:ready"]);
+    await removeIssueLabel(token, owner, repo, issueNumber, "actionable:rejected");
+
+    return res.json({ ok: true, questions: updated });
+  } catch (error) {
+    const apiError = error instanceof GitHubApiError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(apiError?.statusCode || 500).json({
+      error: "Failed to save answers on GitHub.",
+      details: apiError?.details || message,
+    });
+  }
+});
+
+app.get("/api/agent/prompt", (_req: Request, res: Response) => {
+  res.json({ prompt: loadAgentPrompt(projectDir) });
 });
 
 app.listen(PORT, () => {

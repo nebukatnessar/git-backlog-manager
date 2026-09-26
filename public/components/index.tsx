@@ -6,3 +6,4 @@ export * from "./MetricsBar";
 export * from "./IssueLink";
 export * from "./WorkItemDetail";
 export * from "./AIAssistantPanel";
+export * from "./AgentRunPanel";

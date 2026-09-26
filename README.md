@@ -60,3 +60,69 @@ npm test
 ```
 
 Current TypeScript tests cover namespaced label parsing and hierarchy reconstruction. Use `npm run build` to type-check and compile without starting the server.
+
+## Implement agent
+
+The app can spin up a Mistral coding agent (Devstral) that attempts to implement a
+single task issue and open a draft PR, or reject the issue with structured
+questions when the story lacks information.
+
+### How it works
+
+- Task cards show an **Implement** button, enabled only when the issue has both
+  `type:task` and `actionable:ready` labels. The work item detail page shows the
+  full agent panel with run status, PR link, and the agent's questions.
+- On start, the backend adds `agent:in-progress` (guards against double-firing,
+  max 2 concurrent runs globally), builds a prompt from the issue body and
+  labels, and starts an agent conversation via the Mistral Agents API.
+- The agent has a code-execution connector and a GitHub MCP connector
+  (authenticated with the scoped `GITHUB_PAT`) so it can push to
+  `agent/<issue-number>` and open a draft PR referencing `Closes #<N>`.
+- On success the backend verifies a PR exists, labels the issue
+  `actionable:implemented` and removes `agent:in-progress`.
+- On rejection the agent posts one comment wrapped in `<!-- AI_CONVERSATION -->`
+  with `[question]`/`[dependency]` prefixed lines, and labels the issue
+  `actionable:rejected`. The card renders these as structured items; answers are
+  submitted from the card, appended inside the same comment, and the issue is
+  relabeled `actionable:ready`, which re-enables the button.
+- Each run has a time budget (`AGENT_RUN_BUDGET_MS`, default 45 minutes);
+  overruns stop gracefully and are reported on the issue.
+
+The agent system prompt lives in `agent-prompt.md` and is editable without
+code changes (`AGENT_PROMPT_PATH` to override the location). The current prompt
+body is served at `GET /api/agent/prompt`.
+
+### Environment variables
+
+```env
+MISTRAL_API_KEY=your_mistral_api_key
+GITHUB_PAT=your_scoped_github_pat
+# optional
+MISTRAL_AGENT_MODEL=devstral-latest
+AGENT_PROMPT_PATH=./agent-prompt.md
+AGENT_RUN_BUDGET_MS=2700000
+```
+
+`GITHUB_PAT` must be a **fine-grained personal access token scoped to the
+WebDaw repository only**, with these permissions:
+
+| Permission | Access |
+| --- | --- |
+| Contents | Read and write |
+| Pull requests | Read and write |
+| Issues | Read and write |
+
+Create it under *GitHub → Settings → Developer settings → Fine-grained
+tokens*, select only the WebDaw repository, and grant exactly the permissions
+above. The PAT is stored only in the app backend (env var) and is never sent to
+the browser; it is passed once to Mistral as the GitHub MCP connector
+credential so the agent can act on that repository and nothing else.
+
+### API
+
+- `POST /api/repos/:repo/issues/:issueNumber/implement` — start an agent run
+- `GET /api/repos/:repo/issues/:issueNumber/agent-run` — run status, parsed
+  questions, eligibility, concurrency
+- `POST /api/repos/:repo/issues/:issueNumber/answers` — submit answers to the
+  agent's questions (relabels the issue `actionable:ready`)
+- `GET /api/agent/prompt` — current agent system prompt

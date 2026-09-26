@@ -161,6 +161,7 @@ function App(): React.JSX.Element {
   const [workItem, setWorkItem] = useState<WorkItem | null>(null);
   const [loadingWorkItem, setLoadingWorkItem] = useState(false);
   const [workItemError, setWorkItemError] = useState("");
+  const [implementingIssue, setImplementingIssue] = useState<number | null>(null);
 
   // Read URL params
   function readUrlParams(): { repo?: string; state?: string; workItemId?: number } {
@@ -327,6 +328,23 @@ function App(): React.JSX.Element {
     setWorkItem(null);
   }, []);
 
+  const handleImplementIssue = useCallback(async (issueNumber: number) => {
+    setImplementingIssue(issueNumber);
+    try {
+      const response = await fetch(
+        `/api/repos/${encodeURIComponent(selectedRepo)}/issues/${issueNumber}/implement?owner=${encodeURIComponent(owner)}`,
+        { method: "POST" }
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Could not start agent run");
+      setWorkItemId(issueNumber);
+    } catch (implementError) {
+      setError(implementError instanceof Error ? implementError.message : String(implementError));
+    } finally {
+      setImplementingIssue(null);
+    }
+  }, [selectedRepo, owner]);
+
   const handleSaveWorkItem = useCallback(async (issueNumber: number, body: string) => {
     if (!selectedRepo) return;
     setLoadingWorkItem(true);
@@ -394,6 +412,8 @@ function App(): React.JSX.Element {
               onViewItem={handleViewItem}
               onBackFromDetail={handleBackFromDetail}
               onSaveWorkItem={handleSaveWorkItem}
+              onImplement={(issueNumber) => { void handleImplementIssue(issueNumber); }}
+              implementingIssue={implementingIssue}
             />
           )}
         </Box>

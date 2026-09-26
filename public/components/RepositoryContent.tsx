@@ -42,6 +42,8 @@ interface RepositoryContentProps {
   onViewItem?: (issueNumber: number) => void;
   onBackFromDetail?: () => void;
   onSaveWorkItem?: (issueNumber: number, body: string) => Promise<void>;
+  onImplement?: (issueNumber: number) => void;
+  implementingIssue?: number | null;
 }
 
 export function RepositoryContent({
@@ -62,6 +64,8 @@ export function RepositoryContent({
   onViewItem,
   onBackFromDetail,
   onSaveWorkItem,
+  onImplement,
+  implementingIssue,
 }: RepositoryContentProps): React.JSX.Element {
   // If we're viewing a specific work item detail
   if (workItemId !== undefined && onBackFromDetail) {
@@ -171,6 +175,8 @@ export function RepositoryContent({
               onAddFeature={onAddFeature}
               onAddTask={onAddTask}
               onViewItem={onViewItem}
+              onImplement={onImplement}
+              implementingIssue={implementingIssue}
               repo={selectedRepo}
             />
             <BugsPanel bugs={data.hierarchy.bugs} onViewItem={onViewItem} />
