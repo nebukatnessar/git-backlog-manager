@@ -13,24 +13,34 @@ It reads GitHub issues, parses namespaced labels (`type:`, `epic:`, `feature:`, 
 
 - **TypeScript Node.js backend (Express)**
   - Serves the web UI
+  - Lists repositories for the configured GitHub owner through `/api/repos`
   - Calls GitHub Issues API securely (token in request bearer header or `GITHUB_TOKEN` env var)
   - Rebuilds work-item tree from label conventions
 - **TypeScript React frontend**
-  - Lets users choose owner/repo/state
-  - Optionally stores a personal token in browser local storage
+  - Provides a Material UI repository sidebar with search and refresh
+  - Loads a repository's work items when selected
+  - Filters issues by open, closed, or all state
   - Displays epic/feature/task tree + bug list
 
 ## Configuration
 
-Use one of these authentication options:
+Create a local `.env` file from `.env.example`. It is ignored by git and can contain the backend token and default owner:
 
-1. Set backend environment variable:
+```env
+GITHUB_TOKEN=your_personal_access_token
+GITHUB_OWNER=your_github_owner
+PORT=3000
+```
+
+The configured owner is prefilled in the UI and is also used when the owner query parameter is omitted. The token stays on the backend, so you do not need to enter it in the UI.
+
+You can also set the backend environment variable directly:
 
 ```bash
 export GITHUB_TOKEN=your_personal_access_token
 ```
 
-2. Or provide token in the web UI (sent as bearer token to backend request only).
+The UI uses the backend-configured token automatically.
 
 ## Run locally
 

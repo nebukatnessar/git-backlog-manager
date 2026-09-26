@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express, { type Request, type Response } from "express";
 import path from "node:path";
 import { buildWorkItemHierarchy, type GitHubIssue } from "../shared/workItems";
@@ -9,6 +10,17 @@ class GitHubApiError extends Error {
   constructor(public statusCode: number, public details: string) {
     super("GitHub API request failed");
   }
+}
+
+interface GitHubRepository {
+  id: number;
+  name: string;
+  full_name: string;
+  description: string | null;
+  private: boolean;
+  stargazers_count: number;
+  open_issues_count: number;
+  updated_at: string;
 }
 
 function isValidRepoPart(value: string): boolean {
@@ -45,14 +57,71 @@ async function fetchIssues(owner: string, repo: string, state: string, token: st
   return issues;
 }
 
+async function fetchRepositories(owner: string, token: string): Promise<GitHubRepository[]> {
+  const repositories: GitHubRepository[] = [];
+  let page = 1;
+
+  while (true) {
+    const url = new URL(`https://api.github.com/users/${owner}/repos`);
+    url.searchParams.set("type", "all");
+    url.searchParams.set("sort", "updated");
+    url.searchParams.set("per_page", "100");
+    url.searchParams.set("page", String(page));
+
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "User-Agent": "git-backlog-manager",
+      },
+    });
+
+    if (!response.ok) throw new GitHubApiError(response.status, await response.text());
+
+    const batch = (await response.json()) as GitHubRepository[];
+    repositories.push(...batch);
+    if (batch.length < 100) break;
+    page += 1;
+  }
+
+  return repositories;
+}
+
 app.use(express.static(path.join(__dirname, "../../public")));
 
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+app.get("/api/config", (_req: Request, res: Response) => {
+  res.json({ owner: process.env.GITHUB_OWNER || "" });
+});
+
+app.get("/api/repos", async (req: Request, res: Response) => {
+  const owner = String(req.query.owner || process.env.GITHUB_OWNER || "").trim();
+  const authHeader = req.get("authorization") || "";
+  const headerToken = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
+  const token = headerToken || process.env.GITHUB_TOKEN;
+
+  if (!owner || !isValidRepoPart(owner)) {
+    return res.status(400).json({ error: "Configure a valid GITHUB_OWNER value." });
+  }
+  if (!token) return res.status(401).json({ error: "No GitHub token configured." });
+
+  try {
+    return res.json({ repositories: await fetchRepositories(owner, token) });
+  } catch (error) {
+    const apiError = error instanceof GitHubApiError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(apiError?.statusCode || 500).json({
+      error: "Failed to load repositories from GitHub.",
+      details: apiError?.details || message,
+    });
+  }
+});
+
 app.get("/api/issues", async (req: Request, res: Response) => {
-  const owner = String(req.query.owner || "").trim();
+  const owner = String(req.query.owner || process.env.GITHUB_OWNER || "").trim();
   const repo = String(req.query.repo || "").trim();
   const state = String(req.query.state || "all").trim();
 
