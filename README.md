@@ -102,7 +102,14 @@ MISTRAL_AGENT_MODEL=devstral-latest
 AGENT_PROMPT_PATH=./agent-prompt.md
 AGENT_RUN_BUDGET_MS=2700000
 MISTRAL_BASE_URL=https://api.mistral.ai/v1
+MISTRAL_CONNECTOR_VISIBILITY=private
 ```
+
+The GitHub MCP connector is created with `visibility: private` first and
+automatically falls back to `shared_workspace`, then `shared_org`, when the
+API key lacks the primitive access scope required for private connectors
+(`personal_and_shared`). Set `MISTRAL_CONNECTOR_VISIBILITY` to pin one
+explicitly.
 
 If starting a run fails, the server log names the failing Mistral or
 GitHub API call, its status code and the API error message (e.g.

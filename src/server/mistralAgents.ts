@@ -115,61 +115,99 @@ async function ensureGitHubConnector(apiKey: string, githubPat: string): Promise
 }
 
 async function createGitHubConnector(apiKey: string): Promise<string> {
-  const connector = await mistralFetch<MistralConnector>(
-    apiKey,
-    `${MISTRAL_BASE_URL}/connectors`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        name: GITHUB_CONNECTOR_NAME,
-        title: "WebDaw GitHub MCP",
-        description: "GitHub MCP tools for the WebDaw repository, authenticated with a scoped PAT.",
-        server: GITHUB_MCP_SERVER_URL,
-        visibility: "private",
-        protocol: "mcp",
-        auth_methods: [{ method_type: "bearer" }],
-      }),
-    },
-    "create connector",
-  );
-  return connector.id;
+  const configuredVisibility = process.env.MISTRAL_CONNECTOR_VISIBILITY;
+  const candidates = configuredVisibility
+    ? [configuredVisibility]
+    : ["private", "shared_workspace", "shared_org"];
+
+  let lastError: unknown = null;
+  for (const visibility of candidates) {
+    try {
+      const connector = await mistralFetch<MistralConnector>(
+        apiKey,
+        `${MISTRAL_BASE_URL}/connectors`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            name: GITHUB_CONNECTOR_NAME,
+            title: "WebDaw GitHub MCP",
+            description: "GitHub MCP tools for the WebDaw repository, authenticated with a scoped PAT.",
+            server: GITHUB_MCP_SERVER_URL,
+            visibility,
+            protocol: "mcp",
+            auth_methods: [{ method_type: "bearer" }],
+          }),
+        },
+        `create connector (visibility: ${visibility})`,
+      );
+      return connector.id;
+    } catch (error) {
+      lastError = error;
+      if (error instanceof MistralApiError && (error.statusCode === 422 || error.statusCode === 403)) {
+        console.warn(
+          `Connector visibility "${visibility}" was rejected; trying the next option. Set MISTRAL_CONNECTOR_VISIBILITY to choose explicitly.`,
+        );
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
 }
 
+const CONSUMER_SCOPES = ["user", "workspace", "organization"] as const;
+
 async function storeConnectorCredential(apiKey: string, connectorId: string, githubPat: string): Promise<void> {
-  const body = JSON.stringify({
+  const credentialBody = JSON.stringify({
     name: "github-pat",
     title: "WebDaw scoped PAT",
     credentials: { bearer_token: githubPat },
   });
 
-  try {
-    await mistralFetch(
-      apiKey,
-      `${MISTRAL_BASE_URL}/connectors/${connectorId}/user/credentials`,
-      { method: "PATCH", body },
-      "update connector credentials",
-    );
-  } catch (error) {
-    if (error instanceof MistralApiError && error.statusCode === 404) {
-      await mistralFetch(
-        apiKey,
-        `${MISTRAL_BASE_URL}/connectors/${connectorId}/user/credentials`,
-        { method: "POST", body },
-        "create connector credentials",
-      );
+  let lastError: unknown = null;
+  for (const scope of CONSUMER_SCOPES) {
+    const url = `${MISTRAL_BASE_URL}/connectors/${connectorId}/${scope}/credentials`;
+    try {
+      await mistralFetch(apiKey, url, { method: "PATCH", body: credentialBody }, `update ${scope} connector credentials`);
       return;
+    } catch (patchError) {
+      lastError = patchError;
+      const patchStatus = patchError instanceof MistralApiError ? patchError.statusCode : null;
+      if (patchStatus !== 404 && patchStatus !== 403 && patchStatus !== 422) throw patchError;
     }
-    throw error;
+
+    try {
+      await mistralFetch(apiKey, url, { method: "POST", body: credentialBody }, `create ${scope} connector credentials`);
+      return;
+    } catch (createError) {
+      lastError = createError;
+      const createStatus = createError instanceof MistralApiError ? createError.statusCode : null;
+      if (createStatus !== 404 && createStatus !== 403 && createStatus !== 422) throw createError;
+      console.warn(`Could not store connector credentials at ${scope} scope; trying the next scope.`);
+    }
   }
+  throw lastError;
 }
 
 async function activateConnector(apiKey: string, connectorId: string): Promise<void> {
-  await mistralFetch(
-    apiKey,
-    `${MISTRAL_BASE_URL}/connectors/${connectorId}/user/activate`,
-    { method: "POST" },
-    "activate connector",
-  );
+  let lastError: unknown = null;
+  for (const scope of CONSUMER_SCOPES) {
+    try {
+      await mistralFetch(
+        apiKey,
+        `${MISTRAL_BASE_URL}/connectors/${connectorId}/${scope}/activate`,
+        { method: "POST" },
+        `activate connector (${scope})`,
+      );
+      return;
+    } catch (error) {
+      lastError = error;
+      const status = error instanceof MistralApiError ? error.statusCode : null;
+      if (status !== 404 && status !== 403 && status !== 422) throw error;
+      console.warn(`Could not activate connector at ${scope} scope; trying the next scope.`);
+    }
+  }
+  throw lastError;
 }
 
 export function loadAgentPrompt(projectDir: string): string {
