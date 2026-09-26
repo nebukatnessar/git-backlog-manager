@@ -288,7 +288,7 @@ Your task is to help the user refine, detail, and polish their work item descrip
 
 RULES:
 1. Ground your suggestions in the current description and all context provided.
-2. When the user asks for suggestions or improvements, offer 2-3 specific options or actionable questions (e.g., acceptance criteria, edge cases, scope constraints).
+2. When the user asks for suggestions or improvements, offer 2-3 specific options or actionable questions (e.g., acceptance criteria, edge cases, scope constraints). And provide numbers to each option for clarity.
 3. Whenever you propose an updated version of the description, wrap the complete, updated text inside a triple-backtick markdown block tagged with \`work_item_update\` like this:
 
 \`\`\`work_item_update
@@ -296,6 +296,7 @@ RULES:
 \`\`\`
 
 4. Keep chat responses concise, helpful, and collaborative.
+5. Try to not ask more then 1 question at a time.
 `;
 
 async function getAIResponse(

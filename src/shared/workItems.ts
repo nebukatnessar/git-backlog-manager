@@ -158,6 +158,13 @@ export function validateCreateWorkItem(input: {
 export function buildCreateLabels(input: CreateWorkItemInput): string[] {
   const labels = [`type:${input.type}`, `status:${input.status}`, `priority:${input.priority}`];
 
+  // Add actionable label based on type
+  if (input.type === "task") {
+    labels.push(`actionable:needs-scoping`);
+  } else {
+    labels.push(`actionable:not-applicable`);
+  }
+
   if (input.type === "epic") {
     labels.push(`epic:${input.slug}`);
   } else if (input.type === "feature") {

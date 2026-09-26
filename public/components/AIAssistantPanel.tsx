@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, FormEvent, ChangeEvent } from "react";
+import ReactMarkdown from "react-markdown";
 import { Box, Button, CircularProgress, Divider, Paper, Stack, TextField, Typography } from "@mui/material";
 import { SmartToy } from "@mui/icons-material";
 
@@ -182,18 +183,34 @@ export function AIAssistantPanel({
                     borderRadius: 1,
                     bgcolor: m.role === "user" ? "primary.main" : "background.paper",
                     color: m.role === "user" ? "primary.contrastText" : "text.primary",
-                    whiteSpace: "pre-wrap",
                     fontSize: "0.875rem",
                     border: m.role === "model" ? "1px solid" : undefined,
                     borderColor: m.role === "model" ? "divider" : undefined,
                   }}
                 >
-                  {displayText.split("\n").map((line, i) => (
-                    <React.Fragment key={i}>
-                      {line}
-                      {i < displayText.split("\n").length - 1 && <br />}
-                    </React.Fragment>
-                  ))}
+                  {m.role === "model" ? (
+                    <ReactMarkdown
+                      components={{
+                        p: ({ children }) => <Typography sx={{ mb: 1, fontSize: "inherit", color: "inherit" }}>{children}</Typography>,
+                        h1: ({ children }) => <Typography variant="h6" sx={{ mt: 1, mb: 1, fontSize: "inherit", color: "inherit" }}>{children}</Typography>,
+                        h2: ({ children }) => <Typography variant="subtitle1" sx={{ mt: 1, mb: 1, fontSize: "inherit", color: "inherit", fontWeight: 600 }}>{children}</Typography>,
+                        h3: ({ children }) => <Typography variant="subtitle2" sx={{ mt: 1, mb: 1, fontSize: "inherit", color: "inherit" }}>{children}</Typography>,
+                        ul: ({ children }) => <Box component="ul" sx={{ pl: 2, m: 0 }}>{children}</Box>,
+                        ol: ({ children }) => <Box component="ol" sx={{ pl: 2, m: 0 }}>{children}</Box>,
+                        li: ({ children }) => <Typography component="li" sx={{ fontSize: "inherit", color: "inherit", display: "list-item" }}>{children}</Typography>,
+                        code: ({ children }) => <Box component="code" sx={{ fontFamily: "monospace", fontSize: "0.8em", bgcolor: "action.selected", px: 0.5, borderRadius: 0.5 }}>{children}</Box>,
+                        pre: ({ children }) => <Box sx={{ bgcolor: "#1d1d1d", p: 1.5, borderRadius: 1, overflow: "auto", my: 1, fontSize: "0.8em", fontFamily: "monospace" }}>{children}</Box>,
+                        strong: ({ children }) => <Typography component="span" sx={{ fontWeight: 600, fontSize: "inherit", color: "inherit" }}>{children}</Typography>,
+                        em: ({ children }) => <Typography component="span" sx={{ fontStyle: "italic", fontSize: "inherit", color: "inherit" }}>{children}</Typography>,
+                        hr: () => <Divider sx={{ my: 1, borderColor: "inherit" }} />,
+                        blockquote: ({ children }) => <Box sx={{ borderLeft: "3px solid", borderColor: "divider", pl: 1.5, my: 1 }}>{children}</Box>,
+                      }}
+                    >
+                      {displayText}
+                    </ReactMarkdown>
+                  ) : (
+                    <Typography sx={{ whiteSpace: "pre-wrap" }}>{displayText}</Typography>
+                  )}
                 </Box>
 
                 {/* Apply Suggestion Button */}
@@ -208,27 +225,7 @@ export function AIAssistantPanel({
                   </Button>
                 )}
 
-                {/* Show suggestions as chips */}
-                {suggestions.length > 0 && proposedUpdate === null && (
-                  <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
-                    {suggestions.map((suggestion, i) => (
-                      <Button
-                        key={i}
-                        size="small"
-                        variant="outlined"
-                        onClick={() => setInputMessage(suggestion)}
-                        sx={{
-                          borderColor: "divider",
-                          color: "text.secondary",
-                          fontSize: "0.75rem",
-                          height: "28px",
-                        }}
-                      >
-                        {suggestion}
-                      </Button>
-                    ))}
-                  </Stack>
-                )}
+             
               </Stack>
             );
           })
