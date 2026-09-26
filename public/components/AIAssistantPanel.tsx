@@ -1,4 +1,4 @@
-import React, { useState, useCallback, FormEvent, ChangeEvent } from "react";
+import React, { useState, useCallback, useEffect, FormEvent, ChangeEvent } from "react";
 import { Box, Button, CircularProgress, Divider, Paper, Stack, TextField, Typography } from "@mui/material";
 import { SmartToy } from "@mui/icons-material";
 
@@ -18,6 +18,8 @@ interface AIAssistantPanelProps {
   description: string;
   additionalContext?: AdditionalContext;
   onApplySuggestion: (updatedDescription: string) => void;
+  conversation?: Message[];
+  onConversationChange?: (conversation: Message[]) => void;
 }
 
 // Helper to extract the updated work item text from the model's output
@@ -39,10 +41,26 @@ const extractSuggestions = (text: string): string[] => {
   return suggestions.filter((s) => s.length > 0);
 };
 
-export function AIAssistantPanel({ description, additionalContext, onApplySuggestion }: AIAssistantPanelProps): React.JSX.Element {
-  const [messages, setMessages] = useState<Message[]>([]);
+export function AIAssistantPanel({ 
+  description, 
+  additionalContext, 
+  onApplySuggestion,
+  conversation = [],
+  onConversationChange
+}: AIAssistantPanelProps): React.JSX.Element {
+  const [messages, setMessages] = useState<Message[]>(conversation);
   const [inputMessage, setInputMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  // Sync internal state with prop changes
+  useEffect(() => {
+    setMessages(conversation);
+  }, [conversation]);
+
+  // Notify parent of conversation changes
+  useEffect(() => {
+    onConversationChange?.(messages);
+  }, [messages, onConversationChange]);
 
   const handleSendMessage = useCallback(
     async (e: FormEvent<HTMLFormElement>): Promise<void> => {

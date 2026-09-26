@@ -181,6 +181,106 @@ async function updateGitHubIssue(owner: string, repo: string, issueId: number, t
   return issue;
 }
 
+// AI Conversation storage
+const AI_CONVERSATION_MARKER = "<!-- AI_CONVERSATION -->";
+
+interface ConversationMessage {
+  role: "user" | "model";
+  content: string;
+}
+
+async function fetchConversationComments(owner: string, repo: string, issueId: number, token: string): Promise<ConversationMessage[]> {
+  const url = new URL(`https://api.github.com/repos/${owner}/${repo}/issues/${issueId}/comments`);
+
+  const response = await fetch(url, { headers: githubHeaders(token) });
+  if (!response.ok) throw new GitHubApiError(response.status, await response.text());
+
+  interface GitHubComment {
+    id: number;
+    body: string;
+    user?: { login: string };
+  }
+
+  const comments = (await response.json()) as GitHubComment[];
+  
+  // Find the comment that contains our AI conversation marker
+  const conversationComment = comments.find((c) => c.body.includes(AI_CONVERSATION_MARKER));
+  
+  if (!conversationComment) return [];
+  
+  try {
+    // Extract JSON from the comment body
+    const body = conversationComment.body;
+    const jsonStart = body.indexOf("{");
+    const jsonEnd = body.lastIndexOf("}") + 1;
+    
+    if (jsonStart === -1 || jsonEnd <= jsonStart) return [];
+    
+    const jsonStr = body.slice(jsonStart, jsonEnd);
+    const parsed = JSON.parse(jsonStr) as { conversation?: ConversationMessage[] };
+    return parsed.conversation || [];
+  } catch (error) {
+    console.warn("Failed to parse conversation from comment:", error);
+    return [];
+  }
+}
+
+async function saveConversationComment(
+  owner: string, 
+  repo: string, 
+  issueId: number, 
+  token: string,
+  conversation: ConversationMessage[]
+): Promise<void> {
+  const url = new URL(`https://api.github.com/repos/${owner}/${repo}/issues/${issueId}/comments`);
+  
+  // First, try to find and update existing conversation comment
+  try {
+    const comments = await fetchConversationComments(owner, repo, issueId, token);
+    const existingComment = comments.length > 0;
+    
+    if (existingComment) {
+      // We need to find the comment ID to update it
+      const commentsUrl = new URL(`https://api.github.com/repos/${owner}/${repo}/issues/${issueId}/comments`);
+      const commentsResponse = await fetch(commentsUrl, { headers: githubHeaders(token) });
+      if (!commentsResponse.ok) throw new GitHubApiError(commentsResponse.status, await commentsResponse.text());
+      
+      interface GitHubComment {
+        id: number;
+        body: string;
+      }
+      
+      const allComments = (await commentsResponse.json()) as GitHubComment[];
+      const conversationComment = allComments.find((c) => c.body.includes(AI_CONVERSATION_MARKER));
+      
+      if (conversationComment) {
+        // Update existing comment
+        const updateUrl = new URL(`https://api.github.com/repos/${owner}/${repo}/issues/comments/${conversationComment.id}`);
+        await fetch(updateUrl, {
+          method: "PATCH",
+          headers: githubHeaders(token, true),
+          body: JSON.stringify({
+            body: `${AI_CONVERSATION_MARKER}\n${JSON.stringify({ conversation })}`
+          }),
+        });
+        return;
+      }
+    }
+  } catch (error) {
+    // If we can't find existing comment, just create a new one
+    console.warn("Could not update existing conversation comment, creating new one:", error);
+  }
+
+  // Create new comment
+  await fetch(url, {
+    method: "POST",
+    headers: githubHeaders(token, true),
+    body: JSON.stringify({
+      body: `${AI_CONVERSATION_MARKER}\n${JSON.stringify({ conversation })}`
+    }),
+  });
+}
+
 // AI Assistant - System instruction
 const AI_SYSTEM_INSTRUCTION = `
 You are an expert Agile Product Owner and writing assistant built directly into a work-item editor.
@@ -528,6 +628,68 @@ app.post("/api/issues", async (req: Request, res: Response) => {
     const message = error instanceof Error ? error.message : String(error);
     return res.status(apiError?.statusCode || 500).json({
       error: "Failed to create work item on GitHub.",
+      details: apiError?.details || message,
+    });
+  }
+});
+
+// AI Conversation endpoints
+app.get("/api/repos/:repo/issues/:issueNumber/conversation", async (req: Request, res: Response) => {
+  const owner = String(req.query.owner || process.env.GITHUB_OWNER || "").trim();
+  const repo = String(req.params.repo).trim();
+  const issueNumber = Number(req.params.issueNumber);
+
+  if (!owner || !repo || !isValidRepoPart(owner) || !isValidRepoPart(repo)) {
+    return res.status(400).json({ error: "Provide valid owner and repo parameters." });
+  }
+  if (!issueNumber || issueNumber <= 0) {
+    return res.status(400).json({ error: "Provide a valid issue number." });
+  }
+
+  const token = resolveToken(req);
+  if (!token) {
+    return res.status(401).json({ error: "No GitHub token configured." });
+  }
+
+  try {
+    const conversation = await fetchConversationComments(owner, repo, issueNumber, token);
+    return res.json({ conversation });
+  } catch (error) {
+    const apiError = error instanceof GitHubApiError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(apiError?.statusCode || 500).json({
+      error: "Failed to load conversation from GitHub.",
+      details: apiError?.details || message,
+    });
+  }
+});
+
+app.post("/api/repos/:repo/issues/:issueNumber/conversation", async (req: Request, res: Response) => {
+  const owner = String(req.query.owner || req.body?.owner || process.env.GITHUB_OWNER || "").trim();
+  const repo = String(req.params.repo).trim();
+  const issueNumber = Number(req.params.issueNumber);
+  const conversation: ConversationMessage[] = req.body?.conversation || [];
+
+  if (!owner || !repo || !isValidRepoPart(owner) || !isValidRepoPart(repo)) {
+    return res.status(400).json({ error: "Provide valid owner and repo parameters." });
+  }
+  if (!issueNumber || issueNumber <= 0) {
+    return res.status(400).json({ error: "Provide a valid issue number." });
+  }
+
+  const token = resolveToken(req);
+  if (!token) {
+    return res.status(401).json({ error: "No GitHub token configured." });
+  }
+
+  try {
+    await saveConversationComment(owner, repo, issueNumber, token, conversation);
+    return res.json({ ok: true, message: "Conversation saved successfully." });
+  } catch (error) {
+    const apiError = error instanceof GitHubApiError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(apiError?.statusCode || 500).json({
+      error: "Failed to save conversation to GitHub.",
       details: apiError?.details || message,
     });
   }

@@ -41,6 +41,11 @@ function getTypeLabel(type: string | undefined): string {
   }
 }
 
+interface ConversationMessage {
+  role: "user" | "model";
+  content: string;
+}
+
 export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics = [], allFeatures = [] }: WorkItemDetailProps): React.JSX.Element {
   const [isEditing, setIsEditing] = useState(false);
   const [editBody, setEditBody] = useState("");
@@ -48,6 +53,7 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   const [saveError, setSaveError] = useState("");
   const [repositoryReadme, setRepositoryReadme] = useState("");
   const [loadingReadme, setLoadingReadme] = useState(false);
+  const [conversation, setConversation] = useState<ConversationMessage[]>([]);
 
   // Fetch repository README when component mounts or repo changes
   useEffect(() => {
@@ -70,6 +76,27 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
     
     void fetchReadme();
   }, [owner, repo]);
+
+  // Fetch AI conversation from GitHub issue comments
+  useEffect(() => {
+    if (!workItem || !owner || !repo) return;
+
+    const fetchConversation = async () => {
+      try {
+        const response = await fetch(
+          `/api/repos/${encodeURIComponent(repo)}/issues/${workItem.number}/conversation?owner=${encodeURIComponent(owner)}`
+        );
+        const data = await response.json();
+        if (data.conversation && Array.isArray(data.conversation)) {
+          setConversation(data.conversation);
+        }
+      } catch (error) {
+        console.warn("Could not fetch conversation:", error);
+      }
+    };
+
+    void fetchConversation();
+  }, [workItem, owner, repo]);
 
   if (!workItem) {
     return (
@@ -110,6 +137,23 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
     setSaveError("");
     try {
       await onSave(workItem.number, editBody);
+      
+      // Save AI conversation to GitHub issue comment
+      if (conversation.length > 0) {
+        try {
+          await fetch(`/api/repos/${encodeURIComponent(repo)}/issues/${workItem.number}/conversation`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              owner,
+              conversation,
+            }),
+          });
+        } catch (convError) {
+          console.warn("Failed to save conversation:", convError);
+        }
+      }
+      
       setIsEditing(false);
       // Refresh the work item to get the latest data
       // This would require a prop to refetch, but for now just toggle editing
@@ -118,7 +162,7 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
     } finally {
       setSaving(false);
     }
-  }, [onSave, workItem.number, editBody]);
+  }, [onSave, workItem.number, editBody, conversation, owner, repo]);
 
   const handleApplyAISuggestion = useCallback((updatedDescription: string) => {
     if (isEditing) {
@@ -287,6 +331,8 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
               repositoryReadme: repositoryReadme || undefined,
             }}
             onApplySuggestion={handleApplyAISuggestion}
+            conversation={conversation}
+            onConversationChange={setConversation}
           />
         </Box>
       </Stack>
