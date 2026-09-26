@@ -28,7 +28,7 @@ import {
   updateIssueComment,
 } from "./github";
 import { labelColor as agentLabelColor } from "./agentLabels";
-import { MistralApiError, ensureImplementAgent, loadAgentPrompt } from "./mistralAgents";
+import { MistralApiError, checkGitHubPatForMcp, ensureImplementAgent, loadAgentPrompt } from "./mistralAgents";
 import {
   AGENT_RUN_BUDGET_MS,
   MAX_CONCURRENT_AGENT_RUNS,
@@ -737,6 +737,12 @@ async function getImplementAgent(token: string): Promise<AgentBootstrap> {
   const githubPat = process.env.GITHUB_PAT || token;
   if (!githubPat) throw new Error("No GitHub token available. Set GITHUB_PAT or GITHUB_TOKEN.");
 
+  const patCheck = await checkGitHubPatForMcp(githubPat);
+  if (!patCheck.ok) {
+    throw new Error(patCheck.message);
+  }
+  console.log(`GITHUB_PAT validated for the MCP agent (login: ${patCheck.login || "unknown"})`);
+
   if (!agentBootstrap) {
     agentBootstrap = await ensureImplementAgent(mistralApiKey, githubPat, projectDir);
   }
@@ -886,6 +892,20 @@ app.post("/api/repos/:repo/issues/:issueNumber/answers", async (req: Request, re
 
 app.get("/api/agent/prompt", (_req: Request, res: Response) => {
   res.json({ prompt: loadAgentPrompt(projectDir) });
+});
+
+app.get("/api/agent/check", async (req: Request, res: Response) => {
+  const token = resolveToken(req);
+  const githubPat = process.env.GITHUB_PAT || token;
+  if (!githubPat) return res.status(401).json({ error: "No GitHub token configured." });
+
+  try {
+    const result = await checkGitHubPatForMcp(githubPat);
+    return res.status(result.ok ? 200 : 400).json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ error: message });
+  }
 });
 
 app.listen(PORT, () => {

@@ -3,9 +3,64 @@ import fs from "node:fs";
 
 const MISTRAL_BASE_URL = process.env.MISTRAL_BASE_URL || "https://api.mistral.ai/v1";
 
-export const GITHUB_MCP_SERVER_URL = "https://api.githubcopilot.com/mcp/";
+export const GITHUB_MCP_SERVER_URL = process.env.GITHUB_MCP_SERVER_URL || "https://api.githubcopilot.com/mcp/";
 export const IMPLEMENT_AGENT_NAME = "webdaw-implement-agent";
 export const GITHUB_CONNECTOR_NAME = "webdaw-github-mcp";
+
+export interface GitHubPatCheckResult {
+  ok: boolean;
+  step: "rest" | "mcp";
+  message: string;
+  login?: string;
+}
+
+export async function checkGitHubPatForMcp(pat: string): Promise<GitHubPatCheckResult> {
+  let login: string | undefined;
+
+  try {
+    const rest = await fetch("https://api.github.com/user", {
+      headers: { Authorization: `Bearer ${pat}`, "User-Agent": "git-backlog-manager", Accept: "application/vnd.github+json" },
+    });
+    if (!rest.ok) {
+      const body = await rest.text();
+      return { ok: false, step: "rest", message: `GitHub REST API rejected GITHUB_PAT (status ${rest.status}): ${body.slice(0, 300)}` };
+    }
+    const user = (await rest.json()) as { login?: string };
+    login = user.login;
+  } catch (error) {
+    return { ok: false, step: "rest", message: `Could not reach the GitHub REST API to validate GITHUB_PAT: ${error instanceof Error ? error.message : String(error)}` };
+  }
+
+  try {
+    const mcp = await fetch(GITHUB_MCP_SERVER_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${pat}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "git-backlog-manager", version: "1.0.0" } },
+      }),
+    });
+    if (!mcp.ok) {
+      const body = await mcp.text();
+      return {
+        ok: false,
+        step: "mcp",
+        message: `GitHub MCP server rejected GITHUB_PAT (status ${mcp.status}): ${body.slice(0, 300)}`,
+        login,
+      };
+    }
+  } catch (error) {
+    return { ok: false, step: "mcp", message: `Could not reach the GitHub MCP server to validate GITHUB_PAT: ${error instanceof Error ? error.message : String(error)}` };
+  }
+
+  return { ok: true, step: "mcp", message: "GITHUB_PAT is valid for the GitHub REST API and the GitHub MCP server.", login };
+}
 
 export class MistralApiError extends Error {
   constructor(public statusCode: number, public details: string, public apiMessage: string) {

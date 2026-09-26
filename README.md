@@ -103,7 +103,14 @@ AGENT_PROMPT_PATH=./agent-prompt.md
 AGENT_RUN_BUDGET_MS=2700000
 MISTRAL_BASE_URL=https://api.mistral.ai/v1
 MISTRAL_CONNECTOR_VISIBILITY=private
+GITHUB_MCP_SERVER_URL=https://api.githubcopilot.com/mcp/
 ```
+
+Before bootstrapping the agent, the backend validates `GITHUB_PAT` directly
+against the GitHub REST API (`GET /user`) and the GitHub MCP server
+(JSON-RPC `initialize` handshake). If either rejects the token, the run is
+not started and the exact rejection (status code + GitHub's response body)
+is logged server-side and returned in `details`.
 
 The GitHub MCP connector is created with `visibility: private` first and
 automatically falls back to `shared_workspace`, then `shared_org`, when the
@@ -116,6 +123,30 @@ GitHub API call, its status code and the API error message (e.g.
 `Mistral API update connector credentials ... failed with status 422`).
 The same message is returned to the UI in the `details` field of the
 error response, so failures show up directly on the agent panel.
+
+#### Troubleshooting `401 Invalid credentials provided`
+
+When Mistral reports `401 {"detail":"Invalid credentials provided"}` during
+connector credential setup, it has validated the stored `GITHUB_PAT` against
+GitHub's MCP server and GitHub rejected it — but Mistral does not surface the
+underlying reason. The backend now preflights the token itself, so the actual
+error (bad credentials, expired/revoked token, truncated token, or the MCP
+endpoint being unavailable to the account) is reported instead. Common
+causes to check:
+
+- The token was copied incompletely (fine-grained tokens are long
+  `github_pat_...` strings that wrap easily).
+- The token has expired or was revoked.
+- The account or organization restricts access to the GitHub MCP endpoint
+  (`https://api.githubcopilot.com/mcp/`).
+
+Run `GET /api/agent/check` to pinpoint which step fails: it returns which
+step (`rest` or `mcp`) rejected the token, the status code, and GitHub's
+response body. `step: "rest"` means the token itself is invalid (check
+expiry/revocation/copy-paste); `step: "mcp"` means the token works for the
+REST API but not for the MCP endpoint (check account/org access to
+`api.githubcopilot.com`). Use `GITHUB_MCP_SERVER_URL` if you need to point
+the connector and the preflight at a different GitHub MCP endpoint.
 
 `GITHUB_PAT` must be a **fine-grained personal access token scoped to the
 WebDaw repository only**, with these permissions:
@@ -140,3 +171,6 @@ credential so the agent can act on that repository and nothing else.
 - `POST /api/repos/:repo/issues/:issueNumber/answers` — submit answers to the
   agent's questions (relabels the issue `actionable:ready`)
 - `GET /api/agent/prompt` — current agent system prompt
+- `GET /api/agent/check` — validate `GITHUB_PAT` against the GitHub REST API
+  and MCP server; returns `{ ok, step, message, login }` and pinpoints which
+  side rejects the token
