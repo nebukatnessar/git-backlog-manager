@@ -9,27 +9,38 @@ interface WorkItemHierarchyProps {
   onAddEpic: () => void;
   onAddFeature: (epicSlug: string) => void;
   onAddTask: (epicSlug: string, featureSlug: string) => void;
+  onViewItem?: (issueNumber: number) => void;
+  repo?: string;
 }
 
 interface FeatureBlockProps {
   feature: Feature;
   onAddTask: () => void;
+  onViewItem?: (issueNumber: number) => void;
 }
 
-function FeatureBlock({ feature, onAddTask }: FeatureBlockProps): React.JSX.Element {
+function FeatureBlock({ feature, onAddTask, onViewItem }: FeatureBlockProps): React.JSX.Element {
   return (
     <Box sx={{ ml: 2.5, pl: 2, borderLeft: "1px solid", borderColor: "divider", py: 1 }}>
       <Stack direction="row" alignItems="center" spacing={1}>
         <ChevronRight sx={{ fontSize: 18, color: "secondary.main" }} />
         <Box sx={{ flex: 1 }}>
           <Typography
-            component="a"
-            href={feature.html_url}
-            target="_blank"
-            rel="noreferrer"
+            component="button"
+            onClick={(e) => { if (onViewItem) { e.preventDefault(); onViewItem(feature.number); } }}
             variant="body1"
             fontWeight={600}
-            sx={{ color: "text.primary", textDecoration: "none", "&:hover": { color: "primary.main" } }}
+            sx={{
+              color: "text.primary",
+              textDecoration: "none",
+              "&:hover": { color: "primary.main", cursor: onViewItem ? "pointer" : "default" },
+              background: "none",
+              border: "none",
+              padding: 0,
+              margin: 0,
+              font: "inherit",
+              textAlign: "left",
+            }}
           >
             #{feature.number} {feature.title}
           </Typography>
@@ -49,7 +60,7 @@ function FeatureBlock({ feature, onAddTask }: FeatureBlockProps): React.JSX.Elem
       </Stack>
       <Box sx={{ mt: 0.5, ml: 2.75 }}>
         {feature.tasks.map((task) => (
-          <IssueLink key={task.number} issue={task} />
+          <IssueLink key={task.number} issue={task} onClick={onViewItem ? () => onViewItem(task.number) : undefined} />
         ))}
       </Box>
     </Box>
@@ -61,6 +72,8 @@ export function WorkItemHierarchy({
   onAddEpic,
   onAddFeature,
   onAddTask,
+  onViewItem,
+  repo,
 }: WorkItemHierarchyProps): React.JSX.Element {
   return (
     <Paper variant="outlined" sx={{ p: { xs: 2, md: 3 }, flex: 1, width: "100%", borderColor: "divider" }}>
@@ -81,12 +94,20 @@ export function WorkItemHierarchy({
             </Avatar>
             <Box sx={{ flex: 1 }}>
               <Typography
-                component="a"
-                href={epic.html_url}
-                target="_blank"
-                rel="noreferrer"
+                component="button"
+                onClick={(e) => { if (onViewItem) { e.preventDefault(); onViewItem(epic.number); } }}
                 fontWeight={700}
-                sx={{ color: "text.primary", textDecoration: "none", "&:hover": { color: "primary.main" } }}
+                sx={{
+                  color: "text.primary",
+                  textDecoration: "none",
+                  "&:hover": { color: "primary.main", cursor: onViewItem ? "pointer" : "default" },
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  margin: 0,
+                  font: "inherit",
+                  textAlign: "left",
+                }}
               >
                 #{epic.number} {epic.title}
               </Typography>
@@ -109,6 +130,7 @@ export function WorkItemHierarchy({
               key={feature.number}
               feature={feature}
               onAddTask={() => onAddTask(epic.slug, feature.slug)}
+              onViewItem={onViewItem}
             />
           ))}
         </Box>

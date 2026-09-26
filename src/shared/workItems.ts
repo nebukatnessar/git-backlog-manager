@@ -8,6 +8,7 @@ export interface GitHubIssue {
   html_url: string;
   state: string;
   labels?: Array<GitHubLabel | string>;
+  body?: string;
 }
 
 export interface WorkItem {
@@ -16,6 +17,7 @@ export interface WorkItem {
   html_url: string;
   state: string;
   labels: Record<string, string>;
+  body?: string;
 }
 
 export interface Task extends WorkItem {
@@ -202,6 +204,7 @@ function mapIssue(issue: GitHubIssue): WorkItem {
     html_url: issue.html_url,
     state: issue.state,
     labels: parseNamespacedLabels(issue.labels),
+    body: issue.body,
   };
 }
 

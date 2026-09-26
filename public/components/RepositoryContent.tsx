@@ -4,6 +4,7 @@ import { type WorkItem, type Epic, type Feature } from "../../src/shared/workIte
 import { MetricsBar } from "./MetricsBar";
 import { WorkItemHierarchy } from "./WorkItemHierarchy";
 import { BugsPanel } from "./BugsPanel";
+import { WorkItemDetail } from "./WorkItemDetail";
 
 interface RepositoryDetails {
   name: string;
@@ -35,6 +36,12 @@ interface RepositoryContentProps {
   onAddEpic: () => void;
   onAddFeature: (epicSlug: string) => void;
   onAddTask: (epicSlug: string, featureSlug: string) => void;
+  workItemId?: number;
+  workItem?: WorkItem | null;
+  loadingWorkItem?: boolean;
+  onViewItem?: (issueNumber: number) => void;
+  onBackFromDetail?: () => void;
+  onSaveWorkItem?: (issueNumber: number, body: string) => Promise<void>;
 }
 
 export function RepositoryContent({
@@ -49,7 +56,68 @@ export function RepositoryContent({
   onAddEpic,
   onAddFeature,
   onAddTask,
+  workItemId,
+  workItem,
+  loadingWorkItem,
+  onViewItem,
+  onBackFromDetail,
+  onSaveWorkItem,
 }: RepositoryContentProps): React.JSX.Element {
+  // If we're viewing a specific work item detail
+  if (workItemId !== undefined && onBackFromDetail) {
+    return (
+      <>
+        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ md: "center" }} spacing={2} sx={{ mb: 4 }}>
+          <Box>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+              <Typography variant="overline" color="primary.main">WORKSPACE / {owner}</Typography>
+              {selectedDetails?.private && (
+                <Typography variant="overline" color="text.secondary">
+                  · Private
+                </Typography>
+              )}
+            </Stack>
+            <Typography variant="h4">{selectedRepo}</Typography>
+            <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+              {selectedDetails?.description || "GitHub work items"}
+            </Typography>
+          </Box>
+          <TextField
+            select
+            SelectProps={{ native: true }}
+            size="small"
+            label="Issue state"
+            value={state}
+            onChange={(event) => onStateChange(event.target.value)}
+            sx={{ minWidth: 140 }}
+          >
+            <option value="all">All issues</option>
+            <option value="open">Open</option>
+            <option value="closed">Closed</option>
+          </TextField>
+        </Stack>
+        {loadingWorkItem ? (
+          <Box sx={{ py: 10, textAlign: "center" }}>
+            <CircularProgress color="primary" />
+          </Box>
+        ) : workItem ? (
+          <WorkItemDetail
+            workItem={workItem}
+            owner={owner}
+            repo={selectedRepo}
+            onBack={onBackFromDetail}
+            onSave={onSaveWorkItem}
+          />
+        ) : (
+          <Typography color="text.secondary" sx={{ py: 4 }}>
+            Work item not found
+          </Typography>
+        )}
+      </>
+    );
+  }
+
+  // Normal hierarchy view
   return (
     <>
       <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ md: "center" }} spacing={2} sx={{ mb: 4 }}>
@@ -95,8 +163,10 @@ export function RepositoryContent({
               onAddEpic={onAddEpic}
               onAddFeature={onAddFeature}
               onAddTask={onAddTask}
+              onViewItem={onViewItem}
+              repo={selectedRepo}
             />
-            <BugsPanel bugs={data.hierarchy.bugs} />
+            <BugsPanel bugs={data.hierarchy.bugs} onViewItem={onViewItem} />
           </Stack>
         </>
       ) : null}

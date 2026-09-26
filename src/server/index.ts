@@ -127,6 +127,35 @@ async function fetchIssues(owner: string, repo: string, state: string, token: st
   return issues;
 }
 
+async function fetchIssueById(owner: string, repo: string, issueId: number, token: string): Promise<GitHubIssue> {
+  const url = new URL(`https://api.github.com/repos/${owner}/${repo}/issues/${issueId}`);
+
+  const response = await fetch(url, { headers: githubHeaders(token) });
+  if (!response.ok) throw new GitHubApiError(response.status, await response.text());
+
+  const issue = (await response.json()) as GitHubIssue & { pull_request?: unknown };
+  if (issue.pull_request) throw new GitHubApiError(404, "Issue is a pull request");
+
+  return issue;
+}
+
+async function updateGitHubIssue(owner: string, repo: string, issueId: number, token: string, body: string): Promise<GitHubIssue> {
+  const url = new URL(`https://api.github.com/repos/${owner}/${repo}/issues/${issueId}`);
+
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: githubHeaders(token, true),
+    body: JSON.stringify({ body }),
+  });
+
+  if (!response.ok) throw new GitHubApiError(response.status, await response.text());
+
+  const issue = (await response.json()) as GitHubIssue & { pull_request?: unknown };
+  if (issue.pull_request) throw new GitHubApiError(404, "Issue is a pull request");
+
+  return issue;
+}
+
 async function fetchRepositories(owner: string, token: string): Promise<GitHubRepository[]> {
   const repositories: GitHubRepository[] = [];
   let page = 1;
@@ -176,6 +205,67 @@ app.get("/api/repos", async (req: Request, res: Response) => {
     const message = error instanceof Error ? error.message : String(error);
     return res.status(apiError?.statusCode || 500).json({
       error: "Failed to load repositories from GitHub.",
+      details: apiError?.details || message,
+    });
+  }
+});
+
+app.get("/api/issues/:id", async (req: Request, res: Response) => {
+  const owner = String(req.query.owner || process.env.GITHUB_OWNER || "").trim();
+  const repo = String(req.query.repo || "").trim();
+  const issueId = Number(req.params.id);
+
+  if (!owner || !repo || !isValidRepoPart(owner) || !isValidRepoPart(repo)) {
+    return res.status(400).json({ error: "Provide valid owner and repo query parameters." });
+  }
+  if (!issueId || issueId <= 0) {
+    return res.status(400).json({ error: "Provide a valid issue ID." });
+  }
+
+  const token = resolveToken(req);
+  if (!token) {
+    return res.status(401).json({ error: "No GitHub token configured." });
+  }
+
+  try {
+    const issue = await fetchIssueById(owner, repo, issueId, token);
+    return res.json({ issue });
+  } catch (error) {
+    const apiError = error instanceof GitHubApiError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(apiError?.statusCode || 500).json({
+      error: "Failed to load issue from GitHub.",
+      details: apiError?.details || message,
+    });
+  }
+});
+
+app.patch("/api/issues/:id", async (req: Request, res: Response) => {
+  const owner = String(req.query.owner || process.env.GITHUB_OWNER || "").trim();
+  const repo = String(req.query.repo || "").trim();
+  const issueId = Number(req.params.id);
+  const body = String(req.body?.body || "").trim();
+
+  if (!owner || !repo || !isValidRepoPart(owner) || !isValidRepoPart(repo)) {
+    return res.status(400).json({ error: "Provide valid owner and repo query parameters." });
+  }
+  if (!issueId || issueId <= 0) {
+    return res.status(400).json({ error: "Provide a valid issue ID." });
+  }
+
+  const token = resolveToken(req);
+  if (!token) {
+    return res.status(401).json({ error: "No GitHub token configured." });
+  }
+
+  try {
+    const issue = await updateGitHubIssue(owner, repo, issueId, token, body);
+    return res.json({ issue });
+  } catch (error) {
+    const apiError = error instanceof GitHubApiError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(apiError?.statusCode || 500).json({
+      error: "Failed to update issue on GitHub.",
       details: apiError?.details || message,
     });
   }

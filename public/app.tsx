@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Alert, Avatar, Box, Button, CircularProgress, CssBaseline, Dialog, DialogActions,
@@ -157,23 +157,30 @@ function App(): React.JSX.Element {
   const [createTarget, setCreateTarget] = useState<CreateTarget | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
+  const [workItemId, setWorkItemId] = useState<number | undefined>(undefined);
+  const [workItem, setWorkItem] = useState<WorkItem | null>(null);
+  const [loadingWorkItem, setLoadingWorkItem] = useState(false);
+  const [workItemError, setWorkItemError] = useState("");
 
-  // Sync state with URL
-  function updateUrl(): void {
-    const params = new URLSearchParams();
-    if (selectedRepo) params.set("repo", selectedRepo);
-    if (state !== "all") params.set("state", state);
-    const searchString = params.toString();
-    const newUrl = searchString ? `?${searchString}` : window.location.pathname;
-    window.history.pushState({}, "", newUrl);
-  }
-
-  function readUrlParams(): { repo?: string; state?: string } {
+  // Read URL params
+  function readUrlParams(): { repo?: string; state?: string; workItemId?: number } {
     const params = new URLSearchParams(window.location.search);
     return {
       repo: params.get("repo") || undefined,
       state: params.get("state") || undefined,
+      workItemId: params.get("work-item-id") ? Number(params.get("work-item-id")) : undefined,
     };
+  }
+
+  // Update URL based on current state
+  function updateUrl(): void {
+    const params = new URLSearchParams();
+    if (selectedRepo) params.set("repo", selectedRepo);
+    if (state !== "all") params.set("state", state);
+    if (workItemId) params.set("work-item-id", String(workItemId));
+    const searchString = params.toString();
+    const newUrl = searchString ? `?${searchString}` : window.location.pathname;
+    window.history.pushState({}, "", newUrl);
   }
 
   async function loadRepositories(configuredOwner = owner): Promise<void> {
@@ -188,8 +195,8 @@ function App(): React.JSX.Element {
     finally { setLoadingRepos(false); }
   }
 
-  async function selectRepository(repo: string): Promise<void> {
-    setSelectedRepo(repo); setLoadingIssues(true); setError("");
+  async function fetchRepositoryIssues(repo: string): Promise<void> {
+    setLoadingIssues(true); setError("");
     try {
       const response = await fetch(`/api/issues?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&state=${encodeURIComponent(state)}`);
       const body = await response.json() as ApiData & { error?: string };
@@ -197,6 +204,25 @@ function App(): React.JSX.Element {
       setData(body);
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : String(requestError)); }
     finally { setLoadingIssues(false); }
+  }
+
+  async function selectRepository(repo: string): Promise<void> {
+    setSelectedRepo(repo);
+    setWorkItemId(undefined);
+    setWorkItem(null);
+    await fetchRepositoryIssues(repo);
+  }
+
+  async function fetchWorkItem(issueId: number): Promise<void> {
+    if (!selectedRepo) return;
+    setLoadingWorkItem(true); setWorkItemError("");
+    try {
+      const response = await fetch(`/api/issues/${issueId}?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(selectedRepo)}`);
+      const body = await response.json() as { issue?: WorkItem; error?: string };
+      if (!response.ok) throw new Error(body.error || "Could not load work item");
+      setWorkItem(body.issue || null);
+    } catch (requestError) { setWorkItemError(requestError instanceof Error ? requestError.message : String(requestError)); }
+    finally { setLoadingWorkItem(false); }
   }
 
   async function createWorkItem(payload: { title: string; slug: string; status: WorkItemStatus; priority: WorkItemPriority }): Promise<void> {
@@ -234,27 +260,95 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     // Initialize from URL on app load
-    const { repo, state: urlState } = readUrlParams();
-    if (repo) setSelectedRepo(repo);
-    if (urlState) setState(urlState);
+    const { repo, state: urlState, workItemId: urlWorkItemId } = readUrlParams();
+    
+    // Set all state at once to avoid triggering useEffects prematurely
+    if (repo) {
+      setSelectedRepo(repo);
+    }
+    if (urlState) {
+      setState(urlState);
+    }
+    if (urlWorkItemId) {
+      setWorkItemId(urlWorkItemId);
+    }
 
     fetch("/api/config").then((response) => response.json() as Promise<{ owner: string }>).then((config) => { setOwner(config.owner); return loadRepositories(config.owner); }).catch((requestError) => setError(requestError instanceof Error ? requestError.message : String(requestError)));
+
+    // Handle browser back/forward navigation
+    const handlePopState = () => {
+      const { repo, state: urlState, workItemId: urlWorkItemId } = readUrlParams();
+      if (repo !== undefined) setSelectedRepo(repo);
+      if (urlState !== undefined) setState(urlState);
+      if (urlWorkItemId !== undefined) {
+        setWorkItemId(urlWorkItemId);
+      } else {
+        setWorkItemId(undefined);
+        setWorkItem(null);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  useEffect(() => { if (selectedRepo) { updateUrl(); void selectRepository(selectedRepo); } }, [state]);
+  // Update URL whenever state that affects URL changes
+  useEffect(() => {
+    updateUrl();
+  }, [selectedRepo, state, workItemId]);
 
-  // Update URL when selectedRepo changes
+  // Fetch repository issues when selectedRepo or state changes
   useEffect(() => { 
     if (selectedRepo) { 
-      updateUrl(); 
-      void selectRepository(selectedRepo); 
+      void fetchRepositoryIssues(selectedRepo); 
     } else { 
-      updateUrl(); 
       setData(null); 
     } 
-  }, [selectedRepo]);
+  }, [selectedRepo, state]);
+
+  // Fetch work item when workItemId changes
+  useEffect(() => {
+    if (workItemId && selectedRepo) {
+      void fetchWorkItem(workItemId);
+    } else {
+      setWorkItem(null);
+    }
+  }, [workItemId, selectedRepo]);
 
   const selectedDetails = repositories.find((repo) => repo.name === selectedRepo);
+
+  const handleViewItem = useCallback((issueNumber: number) => {
+    setWorkItemId(issueNumber);
+    setWorkItem(null);
+  }, []);
+
+  const handleBackFromDetail = useCallback(() => {
+    setWorkItemId(undefined);
+    setWorkItem(null);
+  }, []);
+
+  const handleSaveWorkItem = useCallback(async (issueNumber: number, body: string) => {
+    if (!selectedRepo) return;
+    setLoadingWorkItem(true);
+    setWorkItemError("");
+    try {
+      const response = await fetch(`/api/issues/${issueNumber}?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(selectedRepo)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+      });
+      const result = await response.json() as { issue?: WorkItem; error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not save work item");
+      // Update the local work item with the new body
+      if (workItem) {
+        setWorkItem({ ...workItem, body });
+      }
+    } catch (error) {
+      setWorkItemError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingWorkItem(false);
+    }
+  }, [selectedRepo, owner, workItem]);
   
   return (
     <ThemeProvider theme={theme}>
@@ -289,11 +383,17 @@ function App(): React.JSX.Element {
               state={state}
               data={data}
               loadingIssues={loadingIssues}
-              error={error}
+              error={error || workItemError}
               onStateChange={setState}
               onAddEpic={() => { setCreateError(""); setCreateTarget({ type: "epic" }); }}
               onAddFeature={(epicSlug) => { setCreateError(""); setCreateTarget({ type: "feature", epic: epicSlug }); }}
               onAddTask={(epicSlug, featureSlug) => { setCreateError(""); setCreateTarget({ type: "task", epic: epicSlug, feature: featureSlug }); }}
+              workItemId={workItemId}
+              workItem={workItem}
+              loadingWorkItem={loadingWorkItem}
+              onViewItem={handleViewItem}
+              onBackFromDetail={handleBackFromDetail}
+              onSaveWorkItem={handleSaveWorkItem}
             />
           )}
         </Box>

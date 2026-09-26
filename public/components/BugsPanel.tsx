@@ -6,9 +6,10 @@ import { IssueLink } from "./IssueLink";
 
 interface BugsPanelProps {
   bugs: WorkItem[];
+  onViewItem?: (issueNumber: number) => void;
 }
 
-export function BugsPanel({ bugs }: BugsPanelProps): React.JSX.Element {
+export function BugsPanel({ bugs, onViewItem }: BugsPanelProps): React.JSX.Element {
   return (
     <Paper
       variant="outlined"
@@ -22,7 +23,7 @@ export function BugsPanel({ bugs }: BugsPanelProps): React.JSX.Element {
         </Box>
       </Stack>
       {bugs.map((bug) => (
-        <IssueLink key={bug.number} issue={bug} />
+        <IssueLink key={bug.number} issue={bug} onClick={onViewItem ? () => onViewItem(bug.number) : undefined} />
       ))}
       {!bugs.length && (
         <Typography color="text.secondary" sx={{ py: 2 }}>
