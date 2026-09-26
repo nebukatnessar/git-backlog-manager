@@ -345,12 +345,18 @@ export interface ConversationStartResult {
   outputs: ConversationOutputEntry[];
 }
 
+interface RawConversationStartResponse {
+  conversation_id?: string;
+  conversationId?: string;
+  outputs?: ConversationOutputEntry[];
+}
+
 export async function startAgentConversation(
   apiKey: string,
   agentId: string,
   inputs: string,
 ): Promise<ConversationStartResult> {
-  const response = await mistralFetch<ConversationStartResult>(
+  const response = await mistralFetch<RawConversationStartResponse>(
     apiKey,
     `${MISTRAL_BASE_URL}/conversations`,
     {
@@ -363,7 +369,11 @@ export async function startAgentConversation(
     },
     "start conversation",
   );
-  return response;
+  const conversationId = response.conversation_id || response.conversationId;
+  if (!conversationId) {
+    throw new Error(`Mistral did not return a conversation id (response keys: ${Object.keys(response).join(", ")}).`);
+  }
+  return { conversationId, outputs: response.outputs || [] };
 }
 
 export async function getConversation(apiKey: string, conversationId: string): Promise<{ agentId?: string | null }> {

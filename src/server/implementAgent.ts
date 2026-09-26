@@ -191,11 +191,20 @@ export async function startAgentRun(
 async function executeRun(run: AgentRun, mistralApiKey: string, agentId: string, githubPat: string): Promise<void> {
   try {
     const issue = await fetchIssue(githubPat, run.owner, run.repo, run.issueNumber);
+    const issueUrl = `https://github.com/${run.owner}/${run.repo}/issues/${run.issueNumber}`;
+    console.log(`Agent run ${run.runId} starting conversation for ${issueUrl}`);
+
     const conversation = await startAgentConversation(mistralApiKey, agentId, buildIssuePrompt(issue));
     run.conversationId = conversation.conversationId;
 
-    const issueUrl = `https://github.com/${run.owner}/${run.repo}/issues/${run.issueNumber}`;
-    console.log(`Agent run ${run.runId} conversation ${conversation.conversationId} for ${issueUrl}`);
+    const lastMessage = conversation.outputs
+      .map((entry) => (typeof entry.content === "string" ? entry.content : Array.isArray(entry.content) ? entry.content.map((part) => part.text || "").join("") : ""))
+      .filter(Boolean)
+      .pop();
+    console.log(`Agent run ${run.runId} conversation ${conversation.conversationId} finished for ${issueUrl}`);
+    if (lastMessage) {
+      console.log(`Agent run ${run.runId} final output: ${lastMessage.slice(0, 1500)}`);
+    }
 
     if (await checkRejection(run, githubPat)) return;
     await finalizeSuccess(run, githubPat);
