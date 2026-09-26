@@ -86,6 +86,13 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   const featureSlug = workItem.labels.feature;
   const taskSlug = workItem.labels.task;
 
+  // Prepare parent epic and feature data in the format expected by AIAssistantPanel
+  const foundEpic = epicSlug ? allEpics.find(e => e.slug === epicSlug) : undefined;
+  const foundFeature = featureSlug ? allFeatures.find(f => f.slug === featureSlug && f.epicSlug === epicSlug) : undefined;
+
+  const parentEpic = foundEpic ? { title: foundEpic.title, description: foundEpic.body || "" } : undefined;
+  const parentFeature = foundFeature ? { title: foundFeature.title, description: foundFeature.body || "" } : undefined;
+
   const handleStartEdit = useCallback(() => {
     setIsEditing(true);
     setEditBody(workItem.body || "");
@@ -142,11 +149,9 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
             </Button>
           </>
         ) : (
-          onSave && (
-            <Button startIcon={<Edit />} variant="outlined" onClick={handleStartEdit}>
-              Edit
-            </Button>
-          )
+          <Button startIcon={<Edit />} variant="outlined" onClick={handleStartEdit}>
+            Edit
+          </Button>
         )}
         <Chip
           icon={getTypeIcon(type)}
@@ -273,11 +278,12 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
         {/* AI Assistant Panel - on the right side */}
         <Box sx={{ width: { lg: 360 }, flexShrink: 0 }}>
           <AIAssistantPanel
+            key={`ai-assistant-${workItem.number}`}
             description={isEditing ? editBody : (workItem.body || "")}
             additionalContext={{
               workItemTitle: workItem.title,
-              parentEpic: epicSlug ? allEpics.find(e => e.slug === epicSlug) : undefined,
-              parentFeature: featureSlug ? allFeatures.find(f => f.slug === featureSlug && f.epicSlug === epicSlug) : undefined,
+              parentEpic,
+              parentFeature,
               repositoryReadme: repositoryReadme || undefined,
             }}
             onApplySuggestion={handleApplyAISuggestion}
