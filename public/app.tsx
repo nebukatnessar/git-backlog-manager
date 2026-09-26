@@ -195,6 +195,24 @@ function App(): React.JSX.Element {
   const [createError, setCreateError] = useState("");
   const filteredRepos = useMemo(() => repositories.filter((repo) => repo.name.toLowerCase().includes(repositorySearch.toLowerCase())), [repositories, repositorySearch]);
 
+  // Sync state with URL
+  function updateUrl(): void {
+    const params = new URLSearchParams();
+    if (selectedRepo) params.set("repo", selectedRepo);
+    if (state !== "all") params.set("state", state);
+    const searchString = params.toString();
+    const newUrl = searchString ? `?${searchString}` : window.location.pathname;
+    window.history.pushState({}, "", newUrl);
+  }
+
+  function readUrlParams(): { repo?: string; state?: string } {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      repo: params.get("repo") || undefined,
+      state: params.get("state") || undefined,
+    };
+  }
+
   async function loadRepositories(configuredOwner = owner): Promise<void> {
     if (!configuredOwner) return;
     setLoadingRepos(true); setError("");
@@ -252,10 +270,26 @@ function App(): React.JSX.Element {
   }
 
   useEffect(() => {
+    // Initialize from URL on app load
+    const { repo, state: urlState } = readUrlParams();
+    if (repo) setSelectedRepo(repo);
+    if (urlState) setState(urlState);
+
     fetch("/api/config").then((response) => response.json() as Promise<{ owner: string }>).then((config) => { setOwner(config.owner); return loadRepositories(config.owner); }).catch((requestError) => setError(requestError instanceof Error ? requestError.message : String(requestError)));
   }, []);
 
-  useEffect(() => { if (selectedRepo) void selectRepository(selectedRepo); }, [state]);
+  useEffect(() => { if (selectedRepo) { updateUrl(); void selectRepository(selectedRepo); } }, [state]);
+
+  // Update URL when selectedRepo changes
+  useEffect(() => { 
+    if (selectedRepo) { 
+      updateUrl(); 
+      void selectRepository(selectedRepo); 
+    } else { 
+      updateUrl(); 
+      setData(null); 
+    } 
+  }, [selectedRepo]);
 
   const selectedDetails = repositories.find((repo) => repo.name === selectedRepo);
   return <ThemeProvider theme={theme}><CssBaseline /><Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "background.default" }}>
