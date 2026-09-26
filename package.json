@@ -1,0 +1,37 @@
+{
+  "name": "git-backlog-manager",
+  "version": "1.0.0",
+  "description": "Adds a layer of control on top of the git ticket system.",
+  "main": "dist/server/index.js",
+  "scripts": {
+    "build": "tsc && esbuild public/app.tsx --bundle --outfile=public/app.js --format=esm",
+    "test": "tsx --test test/workItems.test.ts",
+    "start": "npm run build && node dist/server/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://localhost:26831/nebukatnessar/git-backlog-manager"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^6.5.0",
+    "@mui/material": "^6.5.0",
+    "dotenv": "^17.2.2",
+    "express": "^5.2.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.5",
+    "@types/node": "^24.5.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "esbuild": "^0.25.10",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
