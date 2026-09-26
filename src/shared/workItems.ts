@@ -1,12 +1,54 @@
-function normalizeLabelName(label) {
+export interface GitHubLabel {
+  name?: string;
+}
+
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  html_url: string;
+  state: string;
+  labels?: Array<GitHubLabel | string>;
+}
+
+export interface WorkItem {
+  number: number;
+  title: string;
+  html_url: string;
+  state: string;
+  labels: Record<string, string>;
+}
+
+export interface Task extends WorkItem {
+  slug: string;
+}
+
+export interface Feature extends WorkItem {
+  slug: string;
+  tasks: Task[];
+}
+
+export interface Epic extends WorkItem {
+  slug: string;
+  features: Feature[];
+}
+
+export interface WorkItemHierarchy {
+  epics: Epic[];
+  bugs: WorkItem[];
+  orphanFeatures: WorkItem[];
+  orphanTasks: WorkItem[];
+  unclassified: WorkItem[];
+}
+
+function normalizeLabelName(label: GitHubLabel | string | undefined): string {
   if (!label) return "";
   if (typeof label === "string") return label;
   if (typeof label.name === "string") return label.name;
   return "";
 }
 
-function parseNamespacedLabels(labels) {
-  const parsed = {};
+export function parseNamespacedLabels(labels: GitHubIssue["labels"]): Record<string, string> {
+  const parsed: Record<string, string> = {};
 
   for (const label of labels || []) {
     const name = normalizeLabelName(label).trim().toLowerCase();
@@ -26,35 +68,29 @@ function parseNamespacedLabels(labels) {
   return parsed;
 }
 
-function mapIssue(issue) {
-  const namespacedLabels = parseNamespacedLabels(issue.labels);
-
+function mapIssue(issue: GitHubIssue): WorkItem {
   return {
     number: issue.number,
     title: issue.title,
     html_url: issue.html_url,
     state: issue.state,
-    labels: namespacedLabels,
+    labels: parseNamespacedLabels(issue.labels),
   };
 }
 
-function buildWorkItemHierarchy(issues) {
-  const mappedIssues = (issues || []).map(mapIssue);
-  const epicsBySlug = new Map();
-  const featuresByPath = new Map();
+export function buildWorkItemHierarchy(issues: GitHubIssue[] = []): WorkItemHierarchy {
+  const mappedIssues = issues.map(mapIssue);
+  const epicsBySlug = new Map<string, Epic>();
+  const featuresByPath = new Map<string, Feature>();
 
-  const bugs = [];
-  const orphanFeatures = [];
-  const orphanTasks = [];
-  const unclassified = [];
+  const bugs: WorkItem[] = [];
+  const orphanFeatures: WorkItem[] = [];
+  const orphanTasks: WorkItem[] = [];
+  const unclassified: WorkItem[] = [];
 
   for (const issue of mappedIssues) {
     if (issue.labels.type === "epic" && issue.labels.epic) {
-      const epicNode = {
-        ...issue,
-        slug: issue.labels.epic,
-        features: [],
-      };
+      const epicNode: Epic = { ...issue, slug: issue.labels.epic, features: [] };
       epicsBySlug.set(issue.labels.epic, epicNode);
     }
   }
@@ -70,20 +106,12 @@ function buildWorkItemHierarchy(issues) {
       continue;
     }
 
-    const featureNode = {
-      ...issue,
-      slug: featureSlug,
-      tasks: [],
-    };
-
+    const featureNode: Feature = { ...issue, slug: featureSlug, tasks: [] };
     featuresByPath.set(`${epicSlug}/${featureSlug}`, featureNode);
 
     const parentEpic = epicsBySlug.get(epicSlug);
-    if (parentEpic) {
-      parentEpic.features.push(featureNode);
-    } else {
-      orphanFeatures.push(featureNode);
-    }
+    if (parentEpic) parentEpic.features.push(featureNode);
+    else orphanFeatures.push(featureNode);
   }
 
   for (const issue of mappedIssues) {
@@ -97,18 +125,10 @@ function buildWorkItemHierarchy(issues) {
         continue;
       }
 
-      const taskNode = {
-        ...issue,
-        slug: taskSlug,
-      };
-
+      const taskNode: Task = { ...issue, slug: taskSlug };
       const parentFeature = featuresByPath.get(`${epicSlug}/${featureSlug}`);
-      if (parentFeature) {
-        parentFeature.tasks.push(taskNode);
-      } else {
-        orphanTasks.push(taskNode);
-      }
-
+      if (parentFeature) parentFeature.tasks.push(taskNode);
+      else orphanTasks.push(taskNode);
       continue;
     }
 
@@ -122,18 +142,11 @@ function buildWorkItemHierarchy(issues) {
     }
   }
 
-  const epics = [...epicsBySlug.values()];
-
   return {
-    epics,
+    epics: [...epicsBySlug.values()],
     bugs,
     orphanFeatures,
     orphanTasks,
     unclassified,
   };
 }
-
-module.exports = {
-  parseNamespacedLabels,
-  buildWorkItemHierarchy,
-};

@@ -1,14 +1,9 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const { parseNamespacedLabels, buildWorkItemHierarchy } = require("../src/shared/workItems");
+import test from "node:test";
+import assert from "node:assert/strict";
+import { buildWorkItemHierarchy, parseNamespacedLabels } from "../src/shared/workItems";
 
 test("parseNamespacedLabels extracts valid namespace:value labels", () => {
-  const labels = [
-    { name: "Type:Task" },
-    { name: "epic:core-audio" },
-    { name: "invalid" },
-    { name: "priority:high" },
-  ];
+  const labels = [{ name: "Type:Task" }, { name: "epic:core-audio" }, { name: "invalid" }, { name: "priority:high" }];
 
   assert.deepEqual(parseNamespacedLabels(labels), {
     type: "task",

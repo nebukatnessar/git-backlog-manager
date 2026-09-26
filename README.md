@@ -11,11 +11,11 @@ It reads GitHub issues, parses namespaced labels (`type:`, `epic:`, `feature:`, 
 
 ## Architecture
 
-- **Node.js backend (Express)**
+- **TypeScript Node.js backend (Express)**
   - Serves the web UI
   - Calls GitHub Issues API securely (token in request bearer header or `GITHUB_TOKEN` env var)
   - Rebuilds work-item tree from label conventions
-- **React frontend (browser module)**
+- **TypeScript React frontend**
   - Lets users choose owner/repo/state
   - Optionally stores a personal token in browser local storage
   - Displays epic/feature/task tree + bug list
@@ -39,6 +39,8 @@ npm install
 npm start
 ```
 
+`npm start` compiles the backend and bundles the browser entry point before starting the server.
+
 Then open: `http://localhost:3000`
 
 ## Tests
@@ -47,4 +49,4 @@ Then open: `http://localhost:3000`
 npm test
 ```
 
-Current tests cover namespaced label parsing and hierarchy reconstruction.
+Current TypeScript tests cover namespaced label parsing and hierarchy reconstruction. Use `npm run build` to type-check and compile without starting the server.
