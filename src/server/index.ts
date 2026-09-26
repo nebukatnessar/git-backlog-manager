@@ -68,7 +68,7 @@ function isValidRepoPart(value: string): boolean {
 function resolveToken(req: Request): string {
   const authHeader = req.get("authorization") || "";
   const headerToken = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
-  return headerToken || process.env.GITHUB_TOKEN || "";
+  return headerToken || process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || "";
 }
 
 function githubHeaders(token: string, jsonBody = false): Record<string, string> {

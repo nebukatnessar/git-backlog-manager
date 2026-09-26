@@ -163,18 +163,25 @@ above. The PAT is stored only in the app backend (env var) and is never sent to
 the browser; it is passed once to Mistral as the GitHub MCP connector
 credential so the agent can act on that repository and nothing else.
 
-`GITHUB_PAT` and `GITHUB_TOKEN` are **two separate tokens with different
-jobs** — do not set them to the same value:
+`GITHUB_TOKEN` and `GITHUB_PAT` can point to the **same** fine-grained PAT —
+the simplest setup is one token scoped to the repositories you manage.
+The server resolves the app token as `GITHUB_TOKEN` first, then falls back
+to `GITHUB_PAT`, so you can set only `GITHUB_PAT` and everything
+(repo listing, issues, comments, labels, and the agent connector) works
+with it:
 
 | Env var | Used for | Scope needed |
 | --- | --- | --- |
-| `GITHUB_TOKEN` | The backlog app itself: listing repositories, issues, comments, labels | Broad — must see every repo you manage (classic PAT with `repo` scope, or fine-grained with "All repositories" + read/write) |
-| `GITHUB_PAT` | Only the Mistral agent's GitHub MCP connector | Narrow — fine-grained, WebDaw repo only (contents/PRs/issues read-write) |
+| `GITHUB_TOKEN` | The backlog app itself: listing repositories, issues, comments, labels | Broad — must see every repo you manage |
+| `GITHUB_PAT` | The Mistral agent's GitHub MCP connector; also the fallback app token when `GITHUB_TOKEN` is unset | Must include WebDaw with contents/PRs/issues read-write |
 
-The repository list (`GET /api/repos`) is served with `GITHUB_TOKEN`. If it
-returns only WebDaw (or nothing) after configuring the agent, `GITHUB_TOKEN`
-was overwritten with the WebDaw-only fine-grained PAT — restore it to a broad
-token and keep `GITHUB_PAT` as the scoped agent token.
+One caveat: if the backlog app manages repositories beyond WebDaw and you
+use a single WebDaw-only token, the repository list (`GET /api/repos`) will
+only show WebDaw — because the token simply cannot see anything else.
+If you need the app to manage other repositories, either scope the single
+token to all of them, or keep two tokens: a broad `GITHUB_TOKEN` plus a
+WebDaw-only `GITHUB_PAT` for the agent (the agent then stays unable to touch
+anything but WebDaw).
 
 ### API
 
