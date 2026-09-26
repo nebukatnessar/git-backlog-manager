@@ -336,7 +336,7 @@ function App(): React.JSX.Element {
         { method: "POST" }
       );
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Could not start agent run");
+      if (!response.ok) throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not start agent run");
       setWorkItemId(issueNumber);
     } catch (implementError) {
       setError(implementError instanceof Error ? implementError.message : String(implementError));

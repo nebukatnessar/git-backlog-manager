@@ -2,7 +2,14 @@ import type { GitHubIssue } from "../shared/workItems";
 
 export class GitHubApiError extends Error {
   constructor(public statusCode: number, public details: string) {
-    super("GitHub API request failed");
+    let apiMessage = details;
+    try {
+      const parsed = JSON.parse(details) as { message?: string };
+      apiMessage = parsed.message || details;
+    } catch {
+      // keep raw body as the message
+    }
+    super(`GitHub API request failed (${statusCode}): ${apiMessage}`);
   }
 }
 
@@ -29,11 +36,21 @@ export function githubHeaders(token: string, jsonBody = false): Record<string, s
 }
 
 async function githubFetch<T>(token: string, url: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: { ...githubHeaders(token, Boolean(init.body)), ...(init.headers as Record<string, string>) },
-  });
-  if (!response.ok) throw new GitHubApiError(response.status, await response.text());
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: { ...githubHeaders(token, Boolean(init.body)), ...(init.headers as Record<string, string>) },
+    });
+  } catch (networkError) {
+    console.error(`GitHub API ${init.method || "GET"} ${url} network error:`, networkError);
+    throw networkError;
+  }
+  if (!response.ok) {
+    const details = await response.text();
+    console.error(`GitHub API ${init.method || "GET"} ${url} failed with status ${response.status}:`, details.slice(0, 500));
+    throw new GitHubApiError(response.status, details);
+  }
   return (await response.json()) as T;
 }
 

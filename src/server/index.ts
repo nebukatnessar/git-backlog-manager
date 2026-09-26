@@ -28,7 +28,7 @@ import {
   updateIssueComment,
 } from "./github";
 import { labelColor as agentLabelColor } from "./agentLabels";
-import { ensureImplementAgent, loadAgentPrompt } from "./mistralAgents";
+import { MistralApiError, ensureImplementAgent, loadAgentPrompt } from "./mistralAgents";
 import {
   AGENT_RUN_BUDGET_MS,
   MAX_CONCURRENT_AGENT_RUNS,
@@ -778,11 +778,23 @@ app.post("/api/repos/:repo/issues/:issueNumber/implement", async (req: Request, 
     const run = await startAgentRun(process.env.MISTRAL_API_KEY || "", bootstrap.agentId, process.env.GITHUB_PAT || token, owner, repo, issueNumber);
     return res.status(202).json({ run });
   } catch (error) {
-    const apiError = error instanceof GitHubApiError ? error : null;
+    const githubError = error instanceof GitHubApiError ? error : null;
+    const mistralError = error instanceof MistralApiError ? error : null;
     const message = error instanceof Error ? error.message : String(error);
-    return res.status(apiError?.statusCode || 500).json({
+
+    console.error(
+      `Failed to start implement agent run for ${owner}/${repo}#${issueNumber}:`,
+      githubError || mistralError || error,
+    );
+    if (!githubError && !mistralError && !(error instanceof Error)) {
+      console.error("Raw error value:", error);
+    }
+
+    const status = githubError?.statusCode || mistralError?.statusCode || (error instanceof Error ? 500 : 500);
+    const details = githubError?.details || mistralError?.details || message;
+    return res.status(status).json({
       error: "Failed to start agent run.",
-      details: apiError?.details || message,
+      details,
     });
   }
 });

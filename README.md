@@ -101,7 +101,14 @@ GITHUB_PAT=your_scoped_github_pat
 MISTRAL_AGENT_MODEL=devstral-latest
 AGENT_PROMPT_PATH=./agent-prompt.md
 AGENT_RUN_BUDGET_MS=2700000
+MISTRAL_BASE_URL=https://api.mistral.ai/v1
 ```
+
+If starting a run fails, the server log names the failing Mistral or
+GitHub API call, its status code and the API error message (e.g.
+`Mistral API update connector credentials ... failed with status 422`).
+The same message is returned to the UI in the `details` field of the
+error response, so failures show up directly on the agent panel.
 
 `GITHUB_PAT` must be a **fine-grained personal access token scoped to the
 WebDaw repository only**, with these permissions:

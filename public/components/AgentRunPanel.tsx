@@ -115,7 +115,9 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
         { method: "POST" }
       );
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Could not start agent run");
+      if (!response.ok) {
+        throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not start agent run");
+      }
       const refreshed = await fetchStatus();
       if (refreshed) setStatus(refreshed);
     } catch (startError) {

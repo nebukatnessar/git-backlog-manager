@@ -104,10 +104,14 @@ async function finalizeSuccess(run: AgentRun, githubPat: string): Promise<void> 
   run.finishedAt = Date.now();
 }
 
-async function setRunFailed(run: AgentRun, githubPat: string, message: string): Promise<void> {
+async function setRunFailed(run: AgentRun, githubPat: string, message: string, cause?: unknown): Promise<void> {
   run.state = "failed";
   run.message = message;
   run.finishedAt = Date.now();
+  console.error(
+    `Agent run ${run.runId} for ${run.owner}/${run.repo}#${run.issueNumber} failed: ${message}`,
+    cause instanceof Error ? cause : "",
+  );
   try {
     await removeIssueLabel(githubPat, run.owner, run.repo, run.issueNumber, AGENT_IN_PROGRESS_LABEL);
     await createIssueComment(
@@ -118,7 +122,7 @@ async function setRunFailed(run: AgentRun, githubPat: string, message: string): 
       `Agent run ${run.runId} stopped without success: ${message}`,
     );
   } catch (error) {
-    console.warn("Failed to record agent run failure on the issue:", error);
+    console.warn(`Failed to record failure of agent run ${run.runId} on the issue:`, error);
   }
 }
 
@@ -174,10 +178,11 @@ export async function startAgentRun(
     startedAt: Date.now(),
   };
   runs.set(run.runId, run);
+  console.log(`Agent run ${run.runId} started for ${owner}/${repo}#${issueNumber} (active runs: ${activeRunCount()})`);
 
   void executeRun(run, mistralApiKey, agentId, githubPat).catch(async (error) => {
     const message = error instanceof Error ? error.message : String(error);
-    await setRunFailed(run, githubPat, message);
+    await setRunFailed(run, githubPat, message, error);
   });
 
   return run;
@@ -196,7 +201,7 @@ async function executeRun(run: AgentRun, mistralApiKey: string, agentId: string,
     await finalizeSuccess(run, githubPat);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await setRunFailed(run, githubPat, message);
+    await setRunFailed(run, githubPat, message, error);
   }
 }
 

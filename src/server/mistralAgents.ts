@@ -1,15 +1,15 @@
 import path from "node:path";
 import fs from "node:fs";
 
-const MISTRAL_BASE_URL = "https://api.mistral.ai/v1";
+const MISTRAL_BASE_URL = process.env.MISTRAL_BASE_URL || "https://api.mistral.ai/v1";
 
 export const GITHUB_MCP_SERVER_URL = "https://api.githubcopilot.com/mcp/";
 export const IMPLEMENT_AGENT_NAME = "webdaw-implement-agent";
 export const GITHUB_CONNECTOR_NAME = "webdaw-github-mcp";
 
 export class MistralApiError extends Error {
-  constructor(public statusCode: number, public details: string) {
-    super("Mistral API request failed");
+  constructor(public statusCode: number, public details: string, public apiMessage: string) {
+    super(`Mistral API request failed (${statusCode}): ${apiMessage}`);
   }
 }
 
@@ -38,12 +38,31 @@ function mistralHeaders(apiKey: string, jsonBody = false): Record<string, string
   };
 }
 
-async function mistralFetch<T>(apiKey: string, url: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: { ...mistralHeaders(apiKey, Boolean(init.body)), ...(init.headers as Record<string, string>) },
-  });
-  if (!response.ok) throw new MistralApiError(response.status, await response.text());
+async function mistralFetch<T>(apiKey: string, url: string, init: RequestInit = {}, operation = "request"): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: { ...mistralHeaders(apiKey, Boolean(init.body)), ...(init.headers as Record<string, string>) },
+    });
+  } catch (networkError) {
+    console.error(`Mistral API ${operation} (${url}) network error:`, networkError);
+    throw new Error(`Mistral API ${operation} failed: ${networkError instanceof Error ? networkError.message : String(networkError)}`);
+  }
+
+  if (!response.ok) {
+    const details = await response.text();
+    let apiMessage = details;
+    try {
+      const parsed = JSON.parse(details) as { message?: string; detail?: string };
+      apiMessage = parsed.message || parsed.detail || details;
+    } catch {
+      // keep raw body as the message
+    }
+    console.error(`Mistral API ${operation} (${url}) failed with status ${response.status}:`, apiMessage);
+    const error = new MistralApiError(response.status, details, apiMessage);
+    throw error;
+  }
   return (await response.json()) as T;
 }
 
@@ -58,6 +77,8 @@ export async function listConnectors(apiKey: string): Promise<MistralConnector[]
     const page = await mistralFetch<{ items?: MistralConnector[]; pagination?: { next_cursor?: string | null } }>(
       apiKey,
       url.toString(),
+      {},
+      "list connectors",
     );
     connectors.push(...(page.items || []));
     cursor = page.pagination?.next_cursor || undefined;
@@ -74,7 +95,7 @@ export async function listAgents(apiKey: string): Promise<MistralAgent[]> {
     const url = new URL(`${MISTRAL_BASE_URL}/agents`);
     url.searchParams.set("page", String(page));
     url.searchParams.set("page_size", "100");
-    const result = await mistralFetch<{ data?: MistralAgent[] }>(apiKey, url.toString());
+    const result = await mistralFetch<{ data?: MistralAgent[] }>(apiKey, url.toString(), {}, "list agents");
     const batch = result.data || [];
     agents.push(...batch);
     if (batch.length < 100) break;
@@ -94,34 +115,61 @@ async function ensureGitHubConnector(apiKey: string, githubPat: string): Promise
 }
 
 async function createGitHubConnector(apiKey: string): Promise<string> {
-  const connector = await mistralFetch<MistralConnector>(apiKey, `${MISTRAL_BASE_URL}/connectors`, {
-    method: "POST",
-    body: JSON.stringify({
-      name: GITHUB_CONNECTOR_NAME,
-      title: "WebDaw GitHub MCP",
-      description: "GitHub MCP tools for the WebDaw repository, authenticated with a scoped PAT.",
-      server: GITHUB_MCP_SERVER_URL,
-      visibility: "private",
-      protocol: "mcp",
-      auth_methods: [{ method_type: "bearer" }],
-    }),
-  });
+  const connector = await mistralFetch<MistralConnector>(
+    apiKey,
+    `${MISTRAL_BASE_URL}/connectors`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: GITHUB_CONNECTOR_NAME,
+        title: "WebDaw GitHub MCP",
+        description: "GitHub MCP tools for the WebDaw repository, authenticated with a scoped PAT.",
+        server: GITHUB_MCP_SERVER_URL,
+        visibility: "private",
+        protocol: "mcp",
+        auth_methods: [{ method_type: "bearer" }],
+      }),
+    },
+    "create connector",
+  );
   return connector.id;
 }
 
 async function storeConnectorCredential(apiKey: string, connectorId: string, githubPat: string): Promise<void> {
-  await mistralFetch(apiKey, `${MISTRAL_BASE_URL}/connectors/${connectorId}/user/credentials`, {
-    method: "PATCH",
-    body: JSON.stringify({
-      name: "github-pat",
-      title: "WebDaw scoped PAT",
-      credentials: { bearer_token: githubPat },
-    }),
+  const body = JSON.stringify({
+    name: "github-pat",
+    title: "WebDaw scoped PAT",
+    credentials: { bearer_token: githubPat },
   });
+
+  try {
+    await mistralFetch(
+      apiKey,
+      `${MISTRAL_BASE_URL}/connectors/${connectorId}/user/credentials`,
+      { method: "PATCH", body },
+      "update connector credentials",
+    );
+  } catch (error) {
+    if (error instanceof MistralApiError && error.statusCode === 404) {
+      await mistralFetch(
+        apiKey,
+        `${MISTRAL_BASE_URL}/connectors/${connectorId}/user/credentials`,
+        { method: "POST", body },
+        "create connector credentials",
+      );
+      return;
+    }
+    throw error;
+  }
 }
 
 async function activateConnector(apiKey: string, connectorId: string): Promise<void> {
-  await mistralFetch(apiKey, `${MISTRAL_BASE_URL}/connectors/${connectorId}/user/activate`, { method: "POST" });
+  await mistralFetch(
+    apiKey,
+    `${MISTRAL_BASE_URL}/connectors/${connectorId}/user/activate`,
+    { method: "POST" },
+    "activate connector",
+  );
 }
 
 export function loadAgentPrompt(projectDir: string): string {
@@ -154,17 +202,27 @@ export async function ensureImplementAgent(apiKey: string, githubPat: string, pr
   };
 
   if (existing) {
-    const updated = await mistralFetch<MistralAgent>(apiKey, `${MISTRAL_BASE_URL}/agents/${existing.id}`, {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    });
+    const updated = await mistralFetch<MistralAgent>(
+      apiKey,
+      `${MISTRAL_BASE_URL}/agents/${existing.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      },
+      "update agent",
+    );
     return { agentId: updated.id, connectorId };
   }
 
-  const created = await mistralFetch<MistralAgent>(apiKey, `${MISTRAL_BASE_URL}/agents`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  const created = await mistralFetch<MistralAgent>(
+    apiKey,
+    `${MISTRAL_BASE_URL}/agents`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    "create agent",
+  );
   return { agentId: created.id, connectorId };
 }
 
@@ -183,17 +241,27 @@ export async function startAgentConversation(
   agentId: string,
   inputs: string,
 ): Promise<ConversationStartResult> {
-  const response = await mistralFetch<ConversationStartResult>(apiKey, `${MISTRAL_BASE_URL}/conversations`, {
-    method: "POST",
-    body: JSON.stringify({
-      agent_id: agentId,
-      inputs,
-      store: true,
-    }),
-  });
+  const response = await mistralFetch<ConversationStartResult>(
+    apiKey,
+    `${MISTRAL_BASE_URL}/conversations`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        agent_id: agentId,
+        inputs,
+        store: true,
+      }),
+    },
+    "start conversation",
+  );
   return response;
 }
 
 export async function getConversation(apiKey: string, conversationId: string): Promise<{ agentId?: string | null }> {
-  return mistralFetch<{ agentId?: string | null }>(apiKey, `${MISTRAL_BASE_URL}/conversations/${conversationId}`);
+  return mistralFetch<{ agentId?: string | null }>(
+    apiKey,
+    `${MISTRAL_BASE_URL}/conversations/${conversationId}`,
+    {},
+    "get conversation",
+  );
 }
