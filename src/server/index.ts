@@ -253,12 +253,16 @@ app.post("/api/issues", async (req: Request, res: Response) => {
     await ensureLabels(owner, repo, token, labels);
     const issue = await createGitHubIssue(owner, repo, token, workItem.title, labels);
     const updatedIssues = await fetchIssues(owner, repo, String(req.body?.state || "all"), token);
+    
+    // Ensure the newly created issue is in the list (handle potential GitHub API race conditions)
+    const issueAlreadyInList = updatedIssues.some((i) => i.number === issue.number);
+    if (!issueAlreadyInList) {
+      updatedIssues.push(issue);
+    }
+    
     const updatedHierarchy = buildWorkItemHierarchy(updatedIssues);
 
     return res.status(201).json({
-      issue,
-      workItem,
-      labels,
       repository: { owner, repo },
       totals: { issues: updatedIssues.length, epics: updatedHierarchy.epics.length, bugs: updatedHierarchy.bugs.length },
       hierarchy: updatedHierarchy,

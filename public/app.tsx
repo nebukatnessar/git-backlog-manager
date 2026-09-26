@@ -35,7 +35,13 @@ interface Repository {
 interface ApiData {
   repository: { owner: string; repo: string };
   totals: { issues: number; epics: number; bugs: number };
-  hierarchy: { epics: Epic[]; bugs: WorkItem[] };
+  hierarchy: {
+    epics: Epic[];
+    bugs: WorkItem[];
+    orphanFeatures: WorkItem[];
+    orphanTasks: WorkItem[];
+    unclassified: WorkItem[];
+  };
 }
 
 type CreateTarget =
@@ -84,7 +90,9 @@ function FeatureBlock({ feature, onAddTask }: { feature: Feature; onAddTask: () 
       <Stack direction="row" alignItems="center" spacing={1}>
         <ChevronRight sx={{ fontSize: 18, color: "secondary.main" }} />
         <Box sx={{ flex: 1 }}>
-          <Typography variant="body1" fontWeight={600}>{feature.title}</Typography>
+          <Typography component="a" href={feature.html_url} target="_blank" rel="noreferrer" variant="body1" fontWeight={600} sx={{ color: "text.primary", textDecoration: "none", "&:hover": { color: "primary.main" } }}>
+            #{feature.number} {feature.title}
+          </Typography>
           <Typography variant="caption" color="text.secondary">feature:{feature.slug} · {feature.tasks.length} tasks</Typography>
         </Box>
         <Tooltip title="Add task">
@@ -277,7 +285,9 @@ function App(): React.JSX.Element {
                   <Stack direction="row" spacing={1.5} alignItems="center">
                     <Avatar sx={{ width: 34, height: 34, bgcolor: "#3c3020", color: "secondary.main" }}><FolderOpen fontSize="small" /></Avatar>
                     <Box sx={{ flex: 1 }}>
-                      <Typography fontWeight={700}>{epic.title}</Typography>
+                      <Typography component="a" href={epic.html_url} target="_blank" rel="noreferrer" fontWeight={700} sx={{ color: "text.primary", textDecoration: "none", "&:hover": { color: "primary.main" } }}>
+                        #{epic.number} {epic.title}
+                      </Typography>
                       <Typography variant="caption" color="text.secondary">epic:{epic.slug} · {epic.features.length} features</Typography>
                     </Box>
                     <Tooltip title="Add feature">
