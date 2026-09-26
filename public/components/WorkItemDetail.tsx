@@ -116,6 +116,10 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   const handleApplyAISuggestion = useCallback((updatedDescription: string) => {
     if (isEditing) {
       setEditBody(updatedDescription);
+    } else {
+      // If not in edit mode, enter edit mode and set the description
+      setIsEditing(true);
+      setEditBody(updatedDescription);
     }
   }, [isEditing]);
 
