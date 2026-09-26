@@ -98,7 +98,7 @@ body is served at `GET /api/agent/prompt`.
 MISTRAL_API_KEY=your_mistral_api_key
 GITHUB_PAT=your_scoped_github_pat
 # optional
-MISTRAL_AGENT_MODEL=devstral-latest
+MISTRAL_AGENT_MODEL=devstral-2-latest
 AGENT_PROMPT_PATH=./agent-prompt.md
 AGENT_RUN_BUDGET_MS=2700000
 MISTRAL_BASE_URL=https://api.mistral.ai/v1
@@ -190,6 +190,10 @@ anything but WebDaw).
   questions, eligibility, concurrency
 - `POST /api/repos/:repo/issues/:issueNumber/answers` — submit answers to the
   agent's questions (relabels the issue `actionable:ready`)
+- `GET /api/agent/models` — list the Mistral models available to your API key
+  (use one of these ids for `MISTRAL_AGENT_MODEL`; the default is
+  `devstral-2-latest`, and Mistral rejects unknown ids with
+  `Model ... is currently not in use`)
 - `GET /api/agent/prompt` — current agent system prompt
 - `GET /api/agent/check` — validate `GITHUB_PAT` against the GitHub REST API
   and MCP server; returns `{ ok, step, message, login }` and pinpoints which

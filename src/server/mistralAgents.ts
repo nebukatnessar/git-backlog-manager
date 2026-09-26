@@ -142,6 +142,22 @@ export async function listConnectors(apiKey: string): Promise<MistralConnector[]
   return connectors;
 }
 
+export interface MistralModel {
+  id: string;
+  name?: string;
+  description?: string;
+  capabilities?: Record<string, unknown>;
+  deprecation?: string | null;
+  default_model_temperature?: number | null;
+  max_context_length?: number | null;
+  creation_date?: string | null;
+}
+
+export async function listModels(apiKey: string): Promise<MistralModel[]> {
+  const result = await mistralFetch<{ data?: MistralModel[] }>(apiKey, `${MISTRAL_BASE_URL}/models`, {}, "list models");
+  return (result.data || []).map((model) => ({ ...model, capabilities: model.capabilities || {} }));
+}
+
 export async function listAgents(apiKey: string): Promise<MistralAgent[]> {
   const agents: MistralAgent[] = [];
   let page = 0;
@@ -287,7 +303,7 @@ export async function ensureImplementAgent(apiKey: string, githubPat: string, pr
 
   const tools = [{ type: "code_interpreter" }, { type: "connector", connector_id: connectorId }];
   const payload = {
-    model: process.env.MISTRAL_AGENT_MODEL || "devstral-latest",
+    model: process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest",
     name: IMPLEMENT_AGENT_NAME,
     description: "Implements a single WebDaw task issue and opens a draft PR, or rejects it with structured questions.",
     instructions: loadAgentPrompt(projectDir),

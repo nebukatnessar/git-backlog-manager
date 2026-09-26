@@ -28,7 +28,7 @@ import {
   updateIssueComment,
 } from "./github";
 import { labelColor as agentLabelColor } from "./agentLabels";
-import { MistralApiError, checkGitHubPatForMcp, ensureImplementAgent, loadAgentPrompt } from "./mistralAgents";
+import { MistralApiError, checkGitHubPatForMcp, ensureImplementAgent, listModels, loadAgentPrompt } from "./mistralAgents";
 import {
   AGENT_RUN_BUDGET_MS,
   MAX_CONCURRENT_AGENT_RUNS,
@@ -935,6 +935,28 @@ app.post("/api/repos/:repo/issues/:issueNumber/answers", async (req: Request, re
 
 app.get("/api/agent/prompt", (_req: Request, res: Response) => {
   res.json({ prompt: loadAgentPrompt(projectDir) });
+});
+
+app.get("/api/agent/models", async (_req: Request, res: Response) => {
+  const mistralApiKey = process.env.MISTRAL_API_KEY || "";
+  if (!mistralApiKey) return res.status(400).json({ error: "MISTRAL_API_KEY is not configured in the server environment." });
+
+  try {
+    const models = await listModels(mistralApiKey);
+    return res.json({
+      configuredModel: process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest",
+      models: models
+        .map((model) => ({ id: model.id, name: model.name, description: model.description }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    });
+  } catch (error) {
+    const mistralError = error instanceof MistralApiError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(mistralError?.statusCode || 500).json({
+      error: "Failed to list available Mistral models.",
+      details: mistralError?.details || message,
+    });
+  }
 });
 
 app.get("/api/agent/check", async (req: Request, res: Response) => {
