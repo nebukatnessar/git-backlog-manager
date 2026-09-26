@@ -14,10 +14,26 @@ import {
   fetchPullRequestForBranch,
   removeIssueLabel,
 } from "./github";
-import { startAgentConversation } from "./mistralAgents";
+import { appendAgentConversation, startAgentConversation, type ConversationOutputEntry } from "./mistralAgents";
 
 export const MAX_CONCURRENT_AGENT_RUNS = 2;
 export const AGENT_RUN_BUDGET_MS = Number(process.env.AGENT_RUN_BUDGET_MS || 45 * 60 * 1000);
+const MAX_AGENT_TURNS = Number(process.env.AGENT_MAX_TURNS || 20);
+const TURN_TIMEOUT_MS = Number(process.env.AGENT_TURN_TIMEOUT_MS || 10 * 60 * 1000);
+const CONTINUE_PROMPT = "Continue working on the issue. Use your tools to explore the repository, write the code, run the tests, then push the branch and open the draft pull request. Do not stop to narrate — act. If you cannot proceed, follow the rejection protocol instead.";
+
+function outputText(outputs: ConversationOutputEntry[]): string {
+  return outputs
+    .map((entry) =>
+      typeof entry.content === "string"
+        ? entry.content
+        : Array.isArray(entry.content)
+          ? entry.content.map((part) => part.text || "").join("")
+          : "",
+    )
+    .filter(Boolean)
+    .join("\n");
+}
 
 export type AgentRunState = "running" | "done" | "rejected" | "failed";
 
@@ -189,29 +205,63 @@ export async function startAgentRun(
 }
 
 async function executeRun(run: AgentRun, mistralApiKey: string, agentId: string, githubPat: string): Promise<void> {
+  const issueUrl = `https://github.com/${run.owner}/${run.repo}/issues/${run.issueNumber}`;
   try {
     const issue = await fetchIssue(githubPat, run.owner, run.repo, run.issueNumber);
-    const issueUrl = `https://github.com/${run.owner}/${run.repo}/issues/${run.issueNumber}`;
-    console.log(`Agent run ${run.runId} starting conversation for ${issueUrl}`);
 
-    const conversation = await startAgentConversation(mistralApiKey, agentId, buildIssuePrompt(issue));
+    console.log(`Agent run ${run.runId} starting conversation (turn 1) for ${issueUrl}`);
+    const conversation = await withTurnTimeout(
+      startAgentConversation(mistralApiKey, agentId, buildIssuePrompt(issue)),
+    );
     run.conversationId = conversation.conversationId;
+    console.log(`Agent run ${run.runId} turn 1 finished (conversation ${conversation.conversationId})`);
 
-    const lastMessage = conversation.outputs
-      .map((entry) => (typeof entry.content === "string" ? entry.content : Array.isArray(entry.content) ? entry.content.map((part) => part.text || "").join("") : ""))
-      .filter(Boolean)
-      .pop();
-    console.log(`Agent run ${run.runId} conversation ${conversation.conversationId} finished for ${issueUrl}`);
-    if (lastMessage) {
-      console.log(`Agent run ${run.runId} final output: ${lastMessage.slice(0, 1500)}`);
+    for (let turn = 2; turn <= MAX_AGENT_TURNS; turn += 1) {
+      if (Date.now() - run.startedAt > AGENT_RUN_BUDGET_MS) {
+        await setRunFailed(run, githubPat, "Run exceeded its time budget between turns.");
+        return;
+      }
+      if (await checkRejection(run, githubPat)) return;
+      if (await findPullRequest(run, githubPat)) {
+        await finalizeSuccess(run, githubPat);
+        return;
+      }
+
+      console.log(`Agent run ${run.runId} turn ${turn}: no result yet, asking the agent to continue`);
+      const appended = await withTurnTimeout(
+        appendAgentConversation(mistralApiKey, conversation.conversationId, CONTINUE_PROMPT),
+      );
+      const output = outputText(appended.outputs);
+      console.log(`Agent run ${run.runId} turn ${turn} finished. Output: ${output.slice(0, 500) || "(no text)"}`);
     }
 
-    if (await checkRejection(run, githubPat)) return;
-    await finalizeSuccess(run, githubPat);
+    await setRunFailed(run, githubPat, `Agent did not produce a pull request or a rejection within ${MAX_AGENT_TURNS} turns.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await setRunFailed(run, githubPat, message, error);
   }
+}
+
+function withTurnTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Agent turn exceeded ${TURN_TIMEOUT_MS / 60000} minutes.`)), TURN_TIMEOUT_MS);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function findPullRequest(run: AgentRun, githubPat: string): Promise<boolean> {
+  const branch = agentBranchForIssue(run.issueNumber);
+  const pullRequest = await fetchPullRequestForBranch(githubPat, run.owner, run.repo, branch);
+  return Boolean(pullRequest);
 }
 
 export function reapExpiredRuns(): void {

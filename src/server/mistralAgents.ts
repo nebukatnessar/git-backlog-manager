@@ -351,6 +351,24 @@ interface RawConversationStartResponse {
   outputs?: ConversationOutputEntry[];
 }
 
+export async function appendAgentConversation(
+  apiKey: string,
+  conversationId: string,
+  inputs: string,
+): Promise<ConversationStartResult> {
+  const response = await mistralFetch<RawConversationStartResponse>(
+    apiKey,
+    `${MISTRAL_BASE_URL}/conversations/${conversationId}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ inputs }),
+    },
+    "append conversation",
+  );
+  const conversationIdOut = response.conversation_id || response.conversationId || conversationId;
+  return { conversationId: conversationIdOut, outputs: response.outputs || [] };
+}
+
 export async function startAgentConversation(
   apiKey: string,
   agentId: string,
