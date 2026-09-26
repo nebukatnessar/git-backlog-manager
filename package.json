@@ -1,0 +1,20 @@
+{
+  "name": "git-backlog-manager",
+  "version": "1.0.0",
+  "description": "Adds a layer of control on top of the git ticket system.",
+  "main": "src/server/index.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node src/server/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://localhost:26831/nebukatnessar/git-backlog-manager"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
