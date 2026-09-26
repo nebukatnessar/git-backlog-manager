@@ -402,3 +402,24 @@ export async function getConversation(apiKey: string, conversationId: string): P
     "get conversation",
   );
 }
+
+export interface ConversationHistoryEntry {
+  object?: string;
+  type?: string;
+  role?: string;
+  content?: unknown;
+  name?: string;
+  arguments?: string;
+  output?: unknown;
+  [key: string]: unknown;
+}
+
+export async function getConversationHistory(apiKey: string, conversationId: string): Promise<ConversationHistoryEntry[]> {
+  const result = await mistralFetch<{ entries?: ConversationHistoryEntry[] }>(
+    apiKey,
+    `${MISTRAL_BASE_URL}/conversations/${conversationId}/history`,
+    {},
+    "get conversation history",
+  );
+  return result.entries || [];
+}

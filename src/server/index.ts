@@ -28,7 +28,7 @@ import {
   updateIssueComment,
 } from "./github";
 import { labelColor as agentLabelColor } from "./agentLabels";
-import { MistralApiError, checkGitHubPatForMcp, ensureImplementAgent, listModels, loadAgentPrompt } from "./mistralAgents";
+import { MistralApiError, checkGitHubPatForMcp, ensureImplementAgent, getConversationHistory, listModels, loadAgentPrompt } from "./mistralAgents";
 import {
   AGENT_RUN_BUDGET_MS,
   MAX_CONCURRENT_AGENT_RUNS,
@@ -935,6 +935,35 @@ app.post("/api/repos/:repo/issues/:issueNumber/answers", async (req: Request, re
 
 app.get("/api/agent/prompt", (_req: Request, res: Response) => {
   res.json({ prompt: loadAgentPrompt(projectDir) });
+});
+
+app.get("/api/agent/conversations/:conversationId/history", async (req: Request, res: Response) => {
+  const mistralApiKey = process.env.MISTRAL_API_KEY || "";
+  if (!mistralApiKey) return res.status(400).json({ error: "MISTRAL_API_KEY is not configured in the server environment." });
+
+  const conversationId = String(req.params.conversationId || "").trim();
+  if (!/^conv_[A-Za-z0-9]+$/.test(conversationId)) {
+    return res.status(400).json({ error: "Provide a valid conversation id (conv_...)." });
+  }
+
+  try {
+    const entries = await getConversationHistory(mistralApiKey, conversationId);
+    const summarized = entries.map((entry) => ({
+      type: entry.type || entry.object || "entry",
+      role: entry.role || null,
+      name: entry.name || null,
+      content: typeof entry.content === "string" ? entry.content : entry.content || null,
+      output: entry.output || null,
+    }));
+    return res.json({ conversationId, entryCount: entries.length, entries: summarized });
+  } catch (error) {
+    const mistralError = error instanceof MistralApiError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(mistralError?.statusCode || 500).json({
+      error: "Failed to load conversation history.",
+      details: mistralError?.details || message,
+    });
+  }
 });
 
 app.get("/api/agent/models", async (_req: Request, res: Response) => {
