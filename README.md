@@ -163,6 +163,19 @@ above. The PAT is stored only in the app backend (env var) and is never sent to
 the browser; it is passed once to Mistral as the GitHub MCP connector
 credential so the agent can act on that repository and nothing else.
 
+`GITHUB_PAT` and `GITHUB_TOKEN` are **two separate tokens with different
+jobs** — do not set them to the same value:
+
+| Env var | Used for | Scope needed |
+| --- | --- | --- |
+| `GITHUB_TOKEN` | The backlog app itself: listing repositories, issues, comments, labels | Broad — must see every repo you manage (classic PAT with `repo` scope, or fine-grained with "All repositories" + read/write) |
+| `GITHUB_PAT` | Only the Mistral agent's GitHub MCP connector | Narrow — fine-grained, WebDaw repo only (contents/PRs/issues read-write) |
+
+The repository list (`GET /api/repos`) is served with `GITHUB_TOKEN`. If it
+returns only WebDaw (or nothing) after configuring the agent, `GITHUB_TOKEN`
+was overwritten with the WebDaw-only fine-grained PAT — restore it to a broad
+token and keep `GITHUB_PAT` as the scoped agent token.
+
 ### API
 
 - `POST /api/repos/:repo/issues/:issueNumber/implement` — start an agent run
