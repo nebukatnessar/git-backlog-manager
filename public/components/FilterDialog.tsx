@@ -21,7 +21,7 @@ import { FilterList } from "@mui/icons-material";
 // Define types for the filter state
 interface FilterState {
   githubState: "open" | "closed" | "all";
-  statusLabels: string[]; // Custom status labels (e.g., "To Do", "In Progress")
+  statusLabels: string[]; // Custom status labels (e.g., "backlog", "in-progress")
   actionable: string[]; // Actionable labels (e.g., "ready", "in-progress")
 }
 
@@ -39,12 +39,13 @@ const defaultFilterState: FilterState = {
 };
 
 // List of custom status labels to display in the dialog
+// These are the actual values used in the labels (e.g., "status:backlog" -> "backlog")
 const customStatusOptions = [
-  "To Do",
-  "In Progress",
-  "Done",
-  "Blocked",
-  "Backlog",
+  { value: "backlog", label: "Backlog" },
+  { value: "to-do", label: "To Do" },
+  { value: "in-progress", label: "In Progress" },
+  { value: "done", label: "Done" },
+  { value: "blocked", label: "Blocked" },
 ];
 
 // List of actionable labels to display in the dialog
@@ -111,10 +112,10 @@ export function FilterDialog({
   };
 
   // Handle changes to custom status labels filter
-  const handleStatusLabelChange = (label: string) => {
-    const newStatusLabels = filters.statusLabels.includes(label)
-      ? filters.statusLabels.filter((l) => l !== label)
-      : [...filters.statusLabels, label];
+  const handleStatusLabelChange = (value: string) => {
+    const newStatusLabels = filters.statusLabels.includes(value)
+      ? filters.statusLabels.filter((l) => l !== value)
+      : [...filters.statusLabels, value];
     const newFilters = { ...filters, statusLabels: newStatusLabels };
     setFilters(newFilters);
     saveFilters(owner, repo, newFilters);
@@ -196,16 +197,16 @@ export function FilterDialog({
             <FormControl>
               <FormLabel>Custom Status Labels</FormLabel>
               <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mt: 1 }}>
-                {customStatusOptions.map((label) => (
+                {customStatusOptions.map((option) => (
                   <FormControlLabel
-                    key={label}
+                    key={option.value}
                     control={
                       <Checkbox
-                        checked={filters.statusLabels.includes(label)}
-                        onChange={() => handleStatusLabelChange(label)}
+                        checked={filters.statusLabels.includes(option.value)}
+                        onChange={() => handleStatusLabelChange(option.value)}
                       />
                     }
-                    label={label}
+                    label={option.label}
                   />
                 ))}
               </Box>
