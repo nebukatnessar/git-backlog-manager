@@ -28,7 +28,7 @@ import {
   updateIssueComment,
 } from "./github";
 import { labelColor as agentLabelColor } from "./agentLabels";
-import { MistralApiError, checkGitHubPatForMcp, ensureImplementAgent, getConversationHistory, listModels, loadAgentPrompt } from "./mistralAgents";
+import { MistralApiError, checkGitHubPatForMcp, ensureImplementAgent, findImplementAgent, getAgentById, getConversationHistory, listModels, loadAgentPrompt } from "./mistralAgents";
 import {
   AGENT_RUN_BUDGET_MS,
   MAX_CONCURRENT_AGENT_RUNS,
@@ -935,6 +935,34 @@ app.post("/api/repos/:repo/issues/:issueNumber/answers", async (req: Request, re
 
 app.get("/api/agent/prompt", (_req: Request, res: Response) => {
   res.json({ prompt: loadAgentPrompt(projectDir) });
+});
+
+app.get("/api/agent/debug", async (_req: Request, res: Response) => {
+  const mistralApiKey = process.env.MISTRAL_API_KEY || "";
+  if (!mistralApiKey) return res.status(400).json({ error: "MISTRAL_API_KEY is not configured in the server environment." });
+
+  try {
+    const agent = await findImplementAgent(mistralApiKey);
+    if (!agent) {
+      return res.json({
+        configuredModel: process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest",
+        agent: null,
+        message: "No agent named webdaw-implement-agent exists yet. It is created on the first Implement run.",
+      });
+    }
+    const full = await getAgentById(mistralApiKey, agent.id);
+    return res.json({
+      configuredModel: process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest",
+      agent: full,
+    });
+  } catch (error) {
+    const mistralError = error instanceof MistralApiError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(mistralError?.statusCode || 500).json({
+      error: "Failed to load agent configuration.",
+      details: mistralError?.details || message,
+    });
+  }
 });
 
 app.get("/api/agent/conversations/:conversationId/history", async (req: Request, res: Response) => {

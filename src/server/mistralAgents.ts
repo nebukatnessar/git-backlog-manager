@@ -295,6 +295,15 @@ export function loadAgentPrompt(projectDir: string): string {
   return body.trim();
 }
 
+export async function getAgentById(apiKey: string, agentId: string): Promise<Record<string, unknown>> {
+  return mistralFetch<Record<string, unknown>>(apiKey, `${MISTRAL_BASE_URL}/agents/${agentId}`, {}, "get agent");
+}
+
+export async function findImplementAgent(apiKey: string): Promise<MistralAgent | null> {
+  const agents = await listAgents(apiKey);
+  return agents.find((agent) => agent.name === IMPLEMENT_AGENT_NAME) || null;
+}
+
 export async function ensureImplementAgent(apiKey: string, githubPat: string, projectDir: string): Promise<AgentSetupResult> {
   const connectorId = await ensureGitHubConnector(apiKey, githubPat);
 
