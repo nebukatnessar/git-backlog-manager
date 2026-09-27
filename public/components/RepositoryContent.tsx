@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import { SmartToy } from "@mui/icons-material";
 import { type WorkItem, type Epic, type Feature } from "../../src/shared/workItems";
@@ -58,6 +58,72 @@ interface FilterState {
   actionable: string[];
 }
 
+// Helper function to check if a work item matches the filters
+function matchesFilters(item: WorkItem | Epic | Feature, filters: FilterState): boolean {
+  // Check GitHub state
+  if (filters.githubState !== "all") {
+    if (filters.githubState === "open" && item.state !== "open") return false;
+    if (filters.githubState === "closed" && item.state !== "closed") return false;
+  }
+
+  // Check custom status labels (from labels starting with "status:")
+  if (filters.statusLabels.length > 0) {
+    const itemStatusLabels = item.labels.filter((label) => label.startsWith("status:"))
+      .map((label) => label.replace("status:", ""));
+    const hasMatchingStatus = filters.statusLabels.some((status) =>
+      itemStatusLabels.includes(status)
+    );
+    if (!hasMatchingStatus) return false;
+  }
+
+  // Check actionable labels
+  if (filters.actionable.length > 0) {
+    // If "None" is selected, filter for items without any actionable label
+    if (filters.actionable.includes("none")) {
+      const hasActionableLabel = item.labels.some((label) => label.startsWith("actionable:"));
+      if (hasActionableLabel) return false;
+    } else {
+      // Check for specific actionable labels
+      const hasMatchingActionable = filters.actionable.some((actionable) => {
+        // Handle special case for "in-progress" (matches both actionable:in-progress and agent:in-progress)
+        if (actionable === "in-progress") {
+          return (
+            item.labels.includes("actionable:in-progress") ||
+            item.labels.includes("agent:in-progress")
+          );
+        }
+        return item.labels.includes(`actionable:${actionable}`);
+      });
+      if (!hasMatchingActionable) return false;
+    }
+  }
+
+  return true;
+}
+
+// Helper function to filter a feature's tasks
+function filterFeatureTasks(feature: Feature, filters: FilterState): Feature {
+  return {
+    ...feature,
+    tasks: feature.tasks.filter((task) => matchesFilters(task, filters)),
+  };
+}
+
+// Helper function to filter an epic's features and their tasks
+function filterEpicFeatures(epic: Epic, filters: FilterState): Epic {
+  return {
+    ...epic,
+    features: epic.features
+      .map((feature) => filterFeatureTasks(feature, filters))
+      .filter((feature) => {
+        // Keep feature if it matches filters or has tasks that match
+        const featureMatches = matchesFilters(feature, filters);
+        const hasMatchingTasks = feature.tasks.length > 0;
+        return featureMatches || hasMatchingTasks;
+      }),
+  };
+}
+
 export function RepositoryContent({
   owner,
   selectedRepo,
@@ -94,6 +160,26 @@ export function RepositoryContent({
     // Map githubState to the existing state prop for backward compatibility
     onStateChange(newFilters.githubState);
   };
+
+  // Filter the epics, features, and tasks based on the current filters
+  const filteredData = useMemo(() => {
+    if (!data) return null;
+
+    return {
+      ...data,
+      hierarchy: {
+        ...data.hierarchy,
+        epics: data.hierarchy.epics
+          .map((epic) => filterEpicFeatures(epic, filters))
+          .filter((epic) => {
+            // Keep epic if it matches filters or has features/tasks that match
+            const epicMatches = matchesFilters(epic, filters);
+            const hasMatchingFeatures = epic.features.length > 0;
+            return epicMatches || hasMatchingFeatures;
+          }),
+      },
+    };
+  }, [data, filters]);
 
   // If we're viewing a specific work item detail
   if (workItemId !== undefined && onBackFromDetail) {
@@ -179,12 +265,12 @@ export function RepositoryContent({
         <Box sx={{ py: 10, textAlign: "center" }}>
           <CircularProgress color="primary" />
         </Box>
-      ) : data ? (
+      ) : filteredData ? (
         <>
-          <MetricsBar issues={data.totals.issues} epics={data.totals.epics} bugs={data.totals.bugs} />
+          <MetricsBar issues={filteredData.totals.issues} epics={filteredData.totals.epics} bugs={filteredData.totals.bugs} />
           <Stack direction={{ xs: "column", lg: "row" }} spacing={3} alignItems="flex-start">
             <WorkItemHierarchy
-              epics={data.hierarchy.epics}
+              epics={filteredData.hierarchy.epics}
               onAddEpic={onAddEpic}
               onAddFeature={onAddFeature}
               onAddTask={onAddTask}
@@ -195,7 +281,7 @@ export function RepositoryContent({
               scopingIssue={scopingIssue}
               repo={selectedRepo}
             />
-            <BugsPanel bugs={data.hierarchy.bugs} onViewItem={onViewItem} />
+            <BugsPanel bugs={filteredData.hierarchy.bugs} onViewItem={onViewItem} />
           </Stack>
         </>
       ) : null}
