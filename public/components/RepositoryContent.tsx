@@ -102,25 +102,50 @@ function matchesFilters(item: WorkItem | Epic | Feature, filters: FilterState): 
 
 // Helper function to filter a feature's tasks
 function filterFeatureTasks(feature: Feature, filters: FilterState): Feature {
+  const filteredTasks = feature.tasks.filter((task) => matchesFilters(task, filters));
+  
+  // Always include the feature if any of its tasks match the filter
+  // (regardless of the feature's own status)
+  const hasMatchingTasks = filteredTasks.length > 0;
+  
   return {
     ...feature,
-    tasks: feature.tasks.filter((task) => matchesFilters(task, filters)),
+    tasks: filteredTasks,
   };
 }
 
 // Helper function to filter an epic's features and their tasks
 function filterEpicFeatures(epic: Epic, filters: FilterState): Epic {
+  // First, filter tasks within each feature
+  const filteredFeatures = epic.features.map((feature) => filterFeatureTasks(feature, filters));
+  
+  // Then, filter features: keep if the feature itself matches OR it has matching tasks
+  const includedFeatures = filteredFeatures.filter((feature) => {
+    const featureMatches = matchesFilters(feature, filters);
+    const hasMatchingTasks = feature.tasks.length > 0;
+    return featureMatches || hasMatchingTasks;
+  });
+  
   return {
     ...epic,
-    features: epic.features
-      .map((feature) => filterFeatureTasks(feature, filters))
-      .filter((feature) => {
-        // Keep feature if it matches filters or has tasks that match
-        const featureMatches = matchesFilters(feature, filters);
-        const hasMatchingTasks = feature.tasks.length > 0;
-        return featureMatches || hasMatchingTasks;
-      }),
+    features: includedFeatures,
   };
+}
+
+// Helper function to check if an epic or any of its descendants match the filters
+function epicHasMatchingDescendants(epic: Epic, filters: FilterState): boolean {
+  // Check if the epic itself matches
+  if (matchesFilters(epic, filters)) return true;
+  
+  // Check if any feature or its tasks match
+  for (const feature of epic.features) {
+    if (matchesFilters(feature, filters)) return true;
+    for (const task of feature.tasks) {
+      if (matchesFilters(task, filters)) return true;
+    }
+  }
+  
+  return false;
 }
 
 export function RepositoryContent({
@@ -164,18 +189,26 @@ export function RepositoryContent({
   const filteredData = useMemo(() => {
     if (!data) return null;
 
+    // For "All" filter, show everything
+    if (filters.githubState === "all" && filters.statusLabels.length === 0 && filters.actionable.length === 0) {
+      return data;
+    }
+
+    // For Open/Closed filters, include parents if their children match
+    const filteredEpics = data.hierarchy.epics
+      .map((epic) => filterEpicFeatures(epic, filters))
+      .filter((epic) => {
+        // Keep epic if it matches filters OR has features/tasks that match
+        const epicMatches = matchesFilters(epic, filters);
+        const hasMatchingFeatures = epic.features.length > 0;
+        return epicMatches || hasMatchingFeatures;
+      });
+
     return {
       ...data,
       hierarchy: {
         ...data.hierarchy,
-        epics: data.hierarchy.epics
-          .map((epic) => filterEpicFeatures(epic, filters))
-          .filter((epic) => {
-            // Keep epic if it matches filters or has features/tasks that match
-            const epicMatches = matchesFilters(epic, filters);
-            const hasMatchingFeatures = epic.features.length > 0;
-            return epicMatches || hasMatchingFeatures;
-          }),
+        epics: filteredEpics,
       },
     };
   }, [data, filters]);
