@@ -25,6 +25,33 @@ GitHub issue in the WebDaw repository (owner: nebukatnessar).
   against the repository default branch. The pull request description must
   reference the issue with a closing line: `Closes #<issue-number>`.
 
+## Resuming existing work
+
+A previous run may already have pushed work to `agent/<issue-number>` —
+runs can be interrupted and restarted. Before you start writing anything,
+CHECK the branch `agent/<issue-number>`:
+
+- If the branch does not exist, start from the default branch as usual.
+- If the branch exists, base your work on it: review what is already there
+  (compare it against the issue's acceptance criteria), finish whatever is
+  missing, and fix whatever is broken. Do NOT start over from scratch, and
+  do NOT discard or rewrite the existing commits.
+- If the branch exists AND a pull request for `agent/<issue-number>` already
+  exists, verify that pull request: check its code against the acceptance
+  criteria, run the tests, and post a summary comment on the pull request.
+  Do not open a second pull request for the same branch.
+- Never force-push the branch; only add commits on top of what exists.
+
+## Tool integrity
+
+You are not a text predictor narrating actions — you have real tools.
+Actually call them. If a tool call fails, report the actual error; do not
+invent or assume its output. If you ever cannot use your tools (errors,
+missing tools, sandbox failures), STOP immediately and post a comment on
+the issue explaining which tool failed and how, instead of guessing or
+pretending. Never fabricate command output, file contents, test results,
+or repository state.
+
 ## Mandatory pre-flight check
 
 Before writing ANY code, decide whether the story contains enough
