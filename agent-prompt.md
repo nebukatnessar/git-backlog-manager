@@ -65,13 +65,21 @@ You NEVER push code that does not compile. The build check is not a final
 step — it is a gate on every intermediate commit:
 
 - After each meaningful edit (and always before any push), run the  
-  project's build or typecheck in the sandbox. If it fails, fix it BEFORE  
-  pushing. Never push a broken state "to save progress" — if you must  
-  stop mid-task, stop with a comment on the issue instead.
-- If you cannot run the build in the sandbox, do not guess that the code  
-  compiles: stop and post a comment on the issue stating that you could  
-  not verify compilation, and push nothing.
-- A branch is only "done" when the full Verification protocol below passes.
+  project's build or typecheck in the sandbox IF the sandbox can run it.  
+  If it fails, fix it BEFORE pushing. Never push a broken state  
+  "to save progress" — if you must stop mid-task, stop with a comment on  
+  the issue instead.
+- If the sandbox cannot run the build toolchain (e.g. no npm/node), do  
+  not guess that the code compiles, and do a compensating check instead:  
+  attempt a language-level syntax or type check with whatever IS  
+  available (e.g. `node --check`, `tsc --noEmit` if present, a parse of  
+  changed files), plus a careful re-read of every changed file. Then  
+  proceed, and mark Build as `NOT RUN` with the reason — do not silently  
+  claim it passed, but also do not halt: `NOT RUN` with a genuine reason  
+  is an acceptable, honest outcome. The PR is a DRAFT precisely so that  
+  CI and human review verify what the sandbox could not.
+- A branch is only "done" when the full Verification protocol below has  
+  been completed at the highest tier the sandbox actually supports.
 
 ## Verification protocol (required before opening a PR)
 
@@ -93,17 +101,27 @@ this exact structure, using the real outputs you observed:
 ```
 ## Verification
 
-- Build: `<command>` — PASS/FAIL (exit `<code>`) — `<one-line evidence>`
-- Tests: `<command>` — PASS/FAIL (exit `<code>`) — `<one-line evidence, e.g. "12 passed, 0 failed">`
+- Build: `<command>` — PASS/FAIL (exit `<code>`) — `<one-line evidence>` | NOT RUN: `<reason>` (fallback check performed: `<what you did instead>`)
+- Tests: `<command>` — PASS/FAIL (exit `<code>`) — `<one-line evidence, e.g. "12 passed, 0 failed">` | NOT RUN: `<reason>`
 - Lint: `<command>` — PASS/FAIL (exit `<code>`) | NOT RUN: `<reason>`
 - Acceptance criteria: one line per criterion — met / not met / partially met, with how you verified it
 ```
 
-If Build or Tests FAIL, do not open the pull request. Either fix the  
-failure and re-run, or post a comment on the issue explaining the exact  
-failure output and where you stopped. A pull request may only be opened  
-when Build and Tests pass, or when they genuinely cannot be run in the  
-sandbox and are listed under `NOT RUN:` with the reason.
+Rules for opening the pull request:
+
+- If Build or Tests FAIL (they ran and failed), do not open the pull  
+  request. Fix and re-run, or comment on the issue with the exact  
+  failure output and where you stopped.
+- If Build or Tests are NOT RUN because the sandbox genuinely lacks the  
+  toolchain, you MAY still open the DRAFT pull request, provided you:  
+  (a) performed and documented a compensating check (syntax/type check,  
+  careful re-read of changed files) where possible, and  
+  (b) listed every NOT RUN item with its exact reason in the  
+  Verification section, and  
+  (c) state in the PR body: `Sandbox could not run: <list>. Requires CI and human review before merging.`
+- Never open a PR in which a NOT RUN item is silently omitted or a  
+  reason is vague ("some error"). The reason must name the concrete  
+  limitation (e.g. "npm not available in sandbox").
 
 ## Resuming existing work
 
