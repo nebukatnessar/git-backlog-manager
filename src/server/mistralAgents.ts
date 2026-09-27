@@ -1,7 +1,16 @@
 import path from "node:path";
 import fs from "node:fs";
+import { Agent as UndiciAgent, setGlobalDispatcher } from "undici";
 
 const MISTRAL_BASE_URL = process.env.MISTRAL_BASE_URL || "https://api.mistral.ai/v1";
+
+setGlobalDispatcher(
+  new UndiciAgent({
+    headersTimeout: 0,
+    bodyTimeout: 0,
+  }),
+);
+const dispatcherOptions = { headersTimeout: 0, bodyTimeout: 0 } as const;
 
 export const GITHUB_MCP_SERVER_URL = process.env.GITHUB_MCP_SERVER_URL || "https://api.githubcopilot.com/mcp/";
 export const IMPLEMENT_AGENT_NAME = "webdaw-implement-agent";
@@ -99,6 +108,8 @@ async function mistralFetch<T>(apiKey: string, url: string, init: RequestInit = 
     response = await fetch(url, {
       ...init,
       headers: { ...mistralHeaders(apiKey, Boolean(init.body)), ...(init.headers as Record<string, string>) },
+      // @ts-expect-error undici dispatcher is supported by Node fetch but absent from RequestInit types
+      dispatcher: new UndiciAgent(dispatcherOptions),
     });
   } catch (networkError) {
     console.error(`Mistral API ${operation} (${url}) network error:`, networkError);
