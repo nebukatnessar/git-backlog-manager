@@ -76,7 +76,7 @@ questions when the story lacks information.
   max 2 concurrent runs globally), builds a prompt from the issue body and
   labels, and starts an agent conversation via the Mistral Agents API.
 - The agent has a code-execution connector and a GitHub MCP connector
-  (authenticated with the scoped `GITHUB_PAT`) so it can push to
+  (authenticated with the agent token: `AGENT_GITHUB_TOKEN`, falling back to `GITHUB_PAT`) so it can push to
   `agent/<issue-number>` and open a draft PR referencing `Closes #<N>`.
 - On success the backend verifies a PR exists, labels the issue
   `actionable:implemented` and removes `agent:in-progress`.
@@ -110,6 +110,7 @@ playbook. The file is optional; without it the base prompt is used as-is.
 ```env
 MISTRAL_API_KEY=your_mistral_api_key
 GITHUB_PAT=your_scoped_github_pat
+AGENT_GITHUB_TOKEN=your_bot_github_pat
 # optional
 MISTRAL_AGENT_MODEL=devstral-2-latest
 MISTRAL_AGENT_NAME=implement-agent
@@ -189,6 +190,7 @@ with it:
 | --- | --- | --- |
 | `GITHUB_TOKEN` | The backlog app itself: listing repositories, issues, comments, labels | Broad — must see every repo you manage |
 | `GITHUB_PAT` | The Mistral agent's GitHub MCP connector; also the fallback app token when `GITHUB_TOKEN` is unset | Must include WebDaw with contents/PRs/issues read-write |
+| `AGENT_GITHUB_TOKEN` | The agent pipeline's bot identity: the GitHub MCP connector credential and all agent writes (branch/commit/PR, issue comments, labels). Set this to a fine-grained PAT of a dedicated bot account (e.g. `nebukatnessar-bot`) scoped to this repo with contents RW, issues RW, pull requests RW, metadata R, and the bot invited as collaborator. Agent PRs then post as the bot, so maintainers can review and approve them under branch protection requiring 1 approval. Falls back to `GITHUB_PAT` when unset. | This repo only: contents RW, issues RW, pull requests RW, metadata R |
 
 One caveat: if the backlog app manages repositories beyond WebDaw and you
 use a single WebDaw-only token, the repository list (`GET /api/repos`) will
