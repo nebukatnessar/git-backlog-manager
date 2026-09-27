@@ -79,6 +79,10 @@ function resolveToken(req: Request): string {
   return headerToken || process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || "";
 }
 
+function resolveAgentToken(fallback: string): string {
+  return process.env.AGENT_GITHUB_TOKEN || fallback;
+}
+
 function githubHeaders(token: string, jsonBody = false): Record<string, string> {
   return {
     Accept: "application/vnd.github+json",
@@ -788,8 +792,8 @@ let scopingModelValidated = false;
 async function getImplementAgent(token: string, owner: string, repo: string): Promise<AgentBootstrap> {
   const mistralApiKey = process.env.MISTRAL_API_KEY || "";
   if (!mistralApiKey) throw new Error("MISTRAL_API_KEY is not configured in the server environment.");
-  const githubPat = process.env.GITHUB_PAT || token;
-  if (!githubPat) throw new Error("No GitHub token available. Set GITHUB_PAT or GITHUB_TOKEN.");
+  const githubPat = resolveAgentToken(process.env.GITHUB_PAT || token);
+  if (!githubPat) throw new Error("No GitHub token available. Set AGENT_GITHUB_TOKEN, GITHUB_PAT or GITHUB_TOKEN.");
 
   const cacheKey = `${owner}/${repo}`.toLowerCase();
   if (agentBootstraps.has(cacheKey)) {
@@ -822,8 +826,8 @@ async function getImplementAgent(token: string, owner: string, repo: string): Pr
 async function getScopingAgent(token: string, owner: string, repo: string): Promise<AgentBootstrap> {
   const mistralApiKey = process.env.MISTRAL_API_KEY || "";
   if (!mistralApiKey) throw new Error("MISTRAL_API_KEY is not configured in the server environment.");
-  const githubPat = process.env.GITHUB_PAT || token;
-  if (!githubPat) throw new Error("No GitHub token available. Set GITHUB_PAT or GITHUB_TOKEN.");
+  const githubPat = resolveAgentToken(process.env.GITHUB_PAT || token);
+  if (!githubPat) throw new Error("No GitHub token available. Set AGENT_GITHUB_TOKEN, GITHUB_PAT or GITHUB_TOKEN.");
 
   const cacheKey = `${owner}/${repo}`.toLowerCase();
   if (scopingBootstraps.has(cacheKey)) {
@@ -889,7 +893,7 @@ app.post("/api/repos/:repo/issues/:issueNumber/implement", async (req: Request, 
     }
 
     const bootstrap = await getImplementAgent(token, owner, repo);
-    const run = await startAgentRun(process.env.MISTRAL_API_KEY || "", bootstrap.agentId, process.env.GITHUB_PAT || token, owner, repo, issueNumber);
+    const run = await startAgentRun(process.env.MISTRAL_API_KEY || "", bootstrap.agentId, resolveAgentToken(process.env.GITHUB_PAT || token), owner, repo, issueNumber);
     return res.status(202).json({ run });
   } catch (error) {
     const githubError = error instanceof GitHubApiError ? error : null;
@@ -982,7 +986,7 @@ app.post("/api/repos/:repo/issues/:issueNumber/scope", async (req: Request, res:
     const run = await startScopingRun(
       process.env.MISTRAL_API_KEY || "",
       bootstrap.agentId,
-      process.env.GITHUB_PAT || token,
+      resolveAgentToken(process.env.GITHUB_PAT || token),
       owner,
       repo,
       issueNumber,
@@ -1175,7 +1179,7 @@ app.get("/api/agent/models", async (_req: Request, res: Response) => {
 
 app.get("/api/agent/check", async (req: Request, res: Response) => {
   const token = resolveToken(req);
-  const githubPat = process.env.GITHUB_PAT || token;
+  const githubPat = resolveAgentToken(process.env.GITHUB_PAT || token);
   if (!githubPat) return res.status(401).json({ error: "No GitHub token configured." });
 
   try {

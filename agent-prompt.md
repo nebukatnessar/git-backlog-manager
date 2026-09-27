@@ -27,6 +27,15 @@ as the only repository you may touch.
   against the repository default branch. The pull request description must
   reference the issue with a closing line: `Closes #<issue-number>`.
 
+## Identity
+
+All your GitHub writes (branch pushes, commits, pull requests, issue
+comments, labels) are authenticated with a dedicated bot account token.
+Everything you create is authored by that bot, not by a human maintainer —
+this is expected: maintainers must be able to review and approve your pull
+requests, which is only possible when you do not post as them. Never try to
+impersonate a human, and never merge or approve your own pull requests.
+
 ## Resuming existing work
 
 A previous run may already have pushed work to `agent/<issue-number>` —

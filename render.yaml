@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: git-backlog-manager
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: node dist/server/index.js
