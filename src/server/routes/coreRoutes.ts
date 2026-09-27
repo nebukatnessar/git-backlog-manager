@@ -7,6 +7,7 @@ import {
   validateCreateWorkItem,
 } from "../../shared/workItems";
 import { isValidRepoPart, resolveToken, tokenSource } from "../requestContext";
+import { AUTH_CONFIGURED, publicUser } from "../auth";
 import {
   GitHubApiError,
   createGitHubIssue,
@@ -25,8 +26,13 @@ export function registerCoreRoutes(app: Express): void {
     res.json({ ok: true });
   });
 
-  app.get("/api/config", (_req: Request, res: Response) => {
-    res.json({ owner: process.env.GITHUB_OWNER || "" });
+  app.get("/api/config", (req: Request, res: Response) => {
+    res.json({
+      owner: process.env.GITHUB_OWNER || "",
+      authRequired: AUTH_CONFIGURED,
+      authenticated: AUTH_CONFIGURED ? Boolean(req.authSession) : true,
+      user: req.authSession ? publicUser(req.authSession.user) : null,
+    });
   });
 
   app.post("/api/ai/suggest", async (req: Request, res: Response) => {

@@ -5,6 +5,8 @@ export function isValidRepoPart(value: string): boolean {
 }
 
 export function resolveToken(req: Request): string {
+  // Prefer the signed-in user's GitHub OAuth token.
+  if (req.authSession?.user.token) return req.authSession.user.token;
   const authHeader = req.get("authorization") || "";
   const headerToken = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
   return headerToken || process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || "";
@@ -19,7 +21,10 @@ function maskToken(token: string): string {
   return `${token.slice(0, 4)}...${token.slice(-4)} (len ${token.length})`;
 }
 
-export function tokenSource(req: Request): { source: "authorization-header" | "GITHUB_TOKEN" | "GITHUB_PAT" | "none"; masked: string } {
+export function tokenSource(req: Request): { source: "authorization-header" | "session" | "GITHUB_TOKEN" | "GITHUB_PAT" | "none"; masked: string } {
+  if (req.authSession?.user.token) {
+    return { source: "session", masked: maskToken(req.authSession.user.token) };
+  }
   const authHeader = req.get("authorization") || "";
   const headerToken = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
   if (headerToken) return { source: "authorization-header", masked: maskToken(headerToken) };

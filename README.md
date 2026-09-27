@@ -249,3 +249,36 @@ the current server session.
   a masked fingerprint (first/last 4 chars + length), and the login it
   resolves to. Use this when API calls fail with `401 Bad credentials` to see
   exactly which token the server is actually sending.
+
+## Login (GitHub OAuth)
+
+Optional "Sign in with GitHub". When configured, every `/api/*` route
+(except `/api/health`, `/api/config`, `/api/auth/status`) requires a
+logged-in user, and GitHub API calls run with the **logged-in user's**
+OAuth token instead of the server-wide `GITHUB_TOKEN`/`GITHUB_PAT`.
+
+Sessions are stateless: a signed HttpOnly cookie (HMAC-SHA256 with
+`SESSION_SECRET`) holds the GitHub login and OAuth access token — no
+database required.
+
+### Setup
+
+1. Create an OAuth App at <https://github.com/settings/developers>.
+   Authorization callback URL: `https://<your-render-service>.onrender.com/auth/github/callback`
+2. Set environment variables (Render dashboard → Environment):
+
+   - `GITHUB_CLIENT_ID` — from the OAuth App
+   - `GITHUB_CLIENT_SECRET` — from the OAuth App
+   - `SESSION_SECRET` — random string (`openssl rand -hex 32`)
+   - `PUBLIC_BASE_URL` — optional, only if the callback URL cannot be
+     derived from request headers (set to your Render URL, no trailing slash)
+
+3. Redeploy. The app now shows a "Sign in with GitHub" screen and a
+   logout control next to the user avatar.
+
+### API
+
+- `GET /auth/github` — start the OAuth flow (redirects to GitHub)
+- `GET /auth/github/callback` — OAuth callback (redirects back to the app)
+- `GET /api/auth/status` — `{ authRequired, authenticated, user }`
+- `POST /api/auth/logout` — clears the session cookie
