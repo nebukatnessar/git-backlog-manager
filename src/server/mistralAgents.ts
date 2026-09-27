@@ -129,14 +129,14 @@ export async function listConnectors(apiKey: string): Promise<MistralConnector[]
     const url = new URL(`${MISTRAL_BASE_URL}/connectors`);
     url.searchParams.set("page_size", "100");
     if (cursor) url.searchParams.set("cursor", cursor);
-    const page = await mistralFetch<{ items?: MistralConnector[]; pagination?: { next_cursor?: string | null } }>(
-      apiKey,
-      url.toString(),
-      {},
-      "list connectors",
-    );
-    connectors.push(...(page.items || []));
-    cursor = page.pagination?.next_cursor || undefined;
+    const page = await mistralFetch<{
+      items?: MistralConnector[];
+      pagination?: { next_cursor?: string | null; nextCursor?: string | null };
+    }>(apiKey, url.toString(), {}, "list connectors");
+    const batch = page.items || [];
+    connectors.push(...batch);
+    cursor = page.pagination?.nextCursor || page.pagination?.next_cursor || undefined;
+    if (batch.length === 0) break;
   } while (cursor);
 
   return connectors;
@@ -160,18 +160,23 @@ export async function listModels(apiKey: string): Promise<MistralModel[]> {
 
 export async function listAgents(apiKey: string): Promise<MistralAgent[]> {
   const agents: MistralAgent[] = [];
-  let page = 0;
+  let pageToken: string | undefined;
 
-  while (true) {
-    const url = new URL(`${MISTRAL_BASE_URL}/agents`);
-    url.searchParams.set("page", String(page));
+  do {
+    const url = new URL(`${MISTRAL_BASE_URL}/agents/pages`);
     url.searchParams.set("page_size", "100");
-    const result = await mistralFetch<{ data?: MistralAgent[] }>(apiKey, url.toString(), {}, "list agents");
+    if (pageToken) url.searchParams.set("page_token", pageToken);
+    const result = await mistralFetch<{ data?: MistralAgent[]; next_page_token?: string | null }>(
+      apiKey,
+      url.toString(),
+      {},
+      "list agents",
+    );
     const batch = result.data || [];
     agents.push(...batch);
-    if (batch.length < 100) break;
-    page += 1;
-  }
+    pageToken = result.next_page_token || undefined;
+    if (batch.length === 0) break;
+  } while (pageToken);
 
   return agents;
 }
@@ -306,13 +311,20 @@ export async function findImplementAgent(apiKey: string): Promise<MistralAgent |
 
 export async function ensureImplementAgent(apiKey: string, githubPat: string, projectDir: string): Promise<AgentSetupResult> {
   const connectorId = await ensureGitHubConnector(apiKey, githubPat);
+  console.log(`Implement agent bootstrap: using GitHub MCP connector ${connectorId}`);
 
   const agents = await listAgents(apiKey);
   const existing = agents.find((agent) => agent.name === IMPLEMENT_AGENT_NAME);
+  if (existing) {
+    console.log(`Implement agent bootstrap: found existing agent ${existing.id}`);
+  } else {
+    console.log(`Implement agent bootstrap: no existing agent named ${IMPLEMENT_AGENT_NAME}; creating one`);
+  }
 
+  const model = process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest";
   const tools = [{ type: "code_interpreter" }, { type: "connector", connector_id: connectorId }];
   const payload = {
-    model: process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest",
+    model,
     name: IMPLEMENT_AGENT_NAME,
     description: "Implements a single WebDaw task issue and opens a draft PR, or rejects it with structured questions.",
     instructions: loadAgentPrompt(projectDir),
