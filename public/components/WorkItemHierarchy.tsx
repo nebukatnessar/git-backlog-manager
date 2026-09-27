@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { Avatar, Box, Button, Chip, Paper, Stack, Tooltip, Typography } from "@mui/material";
-import { Add, ChevronRight, FolderOpen } from "@mui/icons-material";
+import { Add, ChevronRight, ExpandMore, FolderOpen } from "@mui/icons-material";
 import { type Epic, type Feature } from "../../src/shared/workItems";
 import { IssueLink } from "./IssueLink";
 
@@ -17,13 +17,29 @@ interface FeatureBlockProps {
   feature: Feature;
   onAddTask: () => void;
   onViewItem?: (issueNumber: number) => void;
+  isExpanded: boolean;
+  onToggle: () => void;
+  indentLevel: number;
 }
 
-function FeatureBlock({ feature, onAddTask, onViewItem }: FeatureBlockProps): React.JSX.Element {
+function FeatureBlock({ feature, onAddTask, onViewItem, isExpanded, onToggle, indentLevel }: FeatureBlockProps): React.JSX.Element {
   return (
-    <Box sx={{ ml: 2.5, pl: 2, borderLeft: "1px solid", borderColor: "divider", py: 1 }}>
+    <Box sx={{ ml: indentLevel, pl: 2, borderLeft: "1px solid", borderColor: "divider", py: 1 }}>
       <Stack direction="row" alignItems="center" spacing={1}>
-        <ChevronRight sx={{ fontSize: 18, color: "secondary.main" }} />
+        <Box
+          component="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          sx={{ background: "none", border: "none", cursor: "pointer", p: 0, m: 0 }}
+        >
+          {isExpanded ? (
+            <ExpandMore sx={{ fontSize: 18, color: "secondary.main" }} />
+          ) : (
+            <ChevronRight sx={{ fontSize: 18, color: "secondary.main" }} />
+          )}
+        </Box>
         <Box sx={{ flex: 1 }}>
           <Typography
             component="button"
@@ -58,11 +74,104 @@ function FeatureBlock({ feature, onAddTask, onViewItem }: FeatureBlockProps): Re
           />
         </Tooltip>
       </Stack>
-      <Box sx={{ mt: 0.5, ml: 2.75 }}>
-        {feature.tasks.map((task) => (
-          <IssueLink key={task.number} issue={task} onClick={onViewItem ? () => onViewItem(task.number) : undefined} />
-        ))}
-      </Box>
+      {isExpanded && (
+        <Box sx={{ mt: 0.5, ml: 2.75 }}>
+          {feature.tasks.map((task) => (
+            <IssueLink key={task.number} issue={task} onClick={onViewItem ? () => onViewItem(task.number) : undefined} />
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+interface EpicBlockProps {
+  epic: Epic;
+  onAddFeature: (epicSlug: string) => void;
+  onAddTask: (epicSlug: string, featureSlug: string) => void;
+  onViewItem?: (issueNumber: number) => void;
+  isExpanded: boolean;
+  onToggle: () => void;
+}
+
+function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onToggle }: EpicBlockProps): React.JSX.Element {
+  const [expandedFeatures, setExpandedFeatures] = useState<Record<string, boolean>>({});
+
+  const toggleFeature = (featureSlug: string) => {
+    setExpandedFeatures((prev) => ({
+      ...prev,
+      [featureSlug]: !prev[featureSlug],
+    }));
+  };
+
+  return (
+    <Box key={epic.number} sx={{ py: 1.5, borderTop: "1px solid", borderColor: "divider" }}>
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <Box
+          component="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          sx={{ background: "none", border: "none", cursor: "pointer", p: 0, m: 0 }}
+        >
+          {isExpanded ? (
+            <ExpandMore sx={{ fontSize: 18, color: "secondary.main" }} />
+          ) : (
+            <ChevronRight sx={{ fontSize: 18, color: "secondary.main" }} />
+          )}
+        </Box>
+        <Avatar sx={{ width: 34, height: 34, bgcolor: "#3c3020", color: "secondary.main" }}>
+          <FolderOpen fontSize="small" />
+        </Avatar>
+        <Box sx={{ flex: 1 }}>
+          <Typography
+            component="button"
+            onClick={(e) => { if (onViewItem) { e.preventDefault(); onViewItem(epic.number); } }}
+            fontWeight={700}
+            sx={{
+              color: "text.primary",
+              textDecoration: "none",
+              "&:hover": { color: "primary.main", cursor: onViewItem ? "pointer" : "default" },
+              background: "none",
+              border: "none",
+              padding: 0,
+              margin: 0,
+              font: "inherit",
+              textAlign: "left",
+            }}
+          >
+            #{epic.number} {epic.title}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            epic:{epic.slug} · {epic.features.length} features
+          </Typography>
+        </Box>
+        <Tooltip title="Add feature">
+          <Chip
+            icon={<Add fontSize="small" />}
+            label="Add"
+            size="small"
+            onClick={() => onAddFeature(epic.slug)}
+            sx={{ cursor: "pointer", borderColor: "divider", color: "text.secondary" }}
+          />
+        </Tooltip>
+      </Stack>
+      {isExpanded && (
+        <>
+          {epic.features.map((feature) => (
+            <FeatureBlock
+              key={feature.number}
+              feature={feature}
+              onAddTask={() => onAddTask(epic.slug, feature.slug)}
+              onViewItem={onViewItem}
+              isExpanded={expandedFeatures[feature.slug] !== false}
+              onToggle={() => toggleFeature(feature.slug)}
+              indentLevel={2.5}
+            />
+          ))}
+        </>
+      )}
     </Box>
   );
 }
@@ -75,6 +184,15 @@ export function WorkItemHierarchy({
   onViewItem,
   repo,
 }: WorkItemHierarchyProps): React.JSX.Element {
+  const [expandedEpics, setExpandedEpics] = useState<Record<string, boolean>>({});
+
+  const toggleEpic = (epicSlug: string) => {
+    setExpandedEpics((prev) => ({
+      ...prev,
+      [epicSlug]: !prev[epicSlug],
+    }));
+  };
+
   return (
     <Paper variant="outlined" sx={{ p: { xs: 2, md: 3 }, flex: 1, width: "100%", borderColor: "divider" }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
@@ -87,53 +205,15 @@ export function WorkItemHierarchy({
         </Button>
       </Stack>
       {epics.map((epic) => (
-        <Box key={epic.number} sx={{ py: 1.5, borderTop: "1px solid", borderColor: "divider" }}>
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <Avatar sx={{ width: 34, height: 34, bgcolor: "#3c3020", color: "secondary.main" }}>
-              <FolderOpen fontSize="small" />
-            </Avatar>
-            <Box sx={{ flex: 1 }}>
-              <Typography
-                component="button"
-                onClick={(e) => { if (onViewItem) { e.preventDefault(); onViewItem(epic.number); } }}
-                fontWeight={700}
-                sx={{
-                  color: "text.primary",
-                  textDecoration: "none",
-                  "&:hover": { color: "primary.main", cursor: onViewItem ? "pointer" : "default" },
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  margin: 0,
-                  font: "inherit",
-                  textAlign: "left",
-                }}
-              >
-                #{epic.number} {epic.title}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                epic:{epic.slug} · {epic.features.length} features
-              </Typography>
-            </Box>
-            <Tooltip title="Add feature">
-              <Chip
-                icon={<Add fontSize="small" />}
-                label="Add"
-                size="small"
-                onClick={() => onAddFeature(epic.slug)}
-                sx={{ cursor: "pointer", borderColor: "divider", color: "text.secondary" }}
-              />
-            </Tooltip>
-          </Stack>
-          {epic.features.map((feature) => (
-            <FeatureBlock
-              key={feature.number}
-              feature={feature}
-              onAddTask={() => onAddTask(epic.slug, feature.slug)}
-              onViewItem={onViewItem}
-            />
-          ))}
-        </Box>
+        <EpicBlock
+          key={epic.number}
+          epic={epic}
+          onAddFeature={onAddFeature}
+          onAddTask={onAddTask}
+          onViewItem={onViewItem}
+          isExpanded={expandedEpics[epic.slug] !== false}
+          onToggle={() => toggleEpic(epic.slug)}
+        />
       ))}
       {!epics.length && (
         <Typography color="text.secondary" sx={{ py: 4 }}>
