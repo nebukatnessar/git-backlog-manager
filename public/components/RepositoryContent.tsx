@@ -100,52 +100,44 @@ function matchesFilters(item: WorkItem | Epic | Feature, filters: FilterState): 
   return true;
 }
 
-// Helper function to filter a feature's tasks
-function filterFeatureTasks(feature: Feature, filters: FilterState): Feature {
+// Helper function to filter a feature's tasks and determine if the feature should be included
+function filterFeatureTasks(feature: Feature, filters: FilterState): { feature: Feature; includeFeature: boolean } {
   const filteredTasks = feature.tasks.filter((task) => matchesFilters(task, filters));
   
-  // Always include the feature if any of its tasks match the filter
-  // (regardless of the feature's own status)
+  // Include the feature if it matches the filters OR has any matching tasks
+  const featureMatches = matchesFilters(feature, filters);
   const hasMatchingTasks = filteredTasks.length > 0;
+  const includeFeature = featureMatches || hasMatchingTasks;
   
   return {
-    ...feature,
-    tasks: filteredTasks,
+    feature: {
+      ...feature,
+      tasks: filteredTasks,
+    },
+    includeFeature,
   };
 }
 
-// Helper function to filter an epic's features and their tasks
-function filterEpicFeatures(epic: Epic, filters: FilterState): Epic {
-  // First, filter tasks within each feature
+// Helper function to filter an epic's features and determine if the epic should be included
+function filterEpicFeatures(epic: Epic, filters: FilterState): { epic: Epic; includeEpic: boolean } {
+  // Filter features and their tasks
   const filteredFeatures = epic.features.map((feature) => filterFeatureTasks(feature, filters));
   
-  // Then, filter features: keep if the feature itself matches OR it has matching tasks
-  const includedFeatures = filteredFeatures.filter((feature) => {
-    const featureMatches = matchesFilters(feature, filters);
-    const hasMatchingTasks = feature.tasks.length > 0;
-    return featureMatches || hasMatchingTasks;
-  });
+  // Include features that match or have matching tasks
+  const includedFeatures = filteredFeatures.filter((result) => result.includeFeature);
+  
+  // Include the epic if it matches the filters OR has any included features
+  const epicMatches = matchesFilters(epic, filters);
+  const hasIncludedFeatures = includedFeatures.length > 0;
+  const includeEpic = epicMatches || hasIncludedFeatures;
   
   return {
-    ...epic,
-    features: includedFeatures,
+    epic: {
+      ...epic,
+      features: includedFeatures.map((result) => result.feature),
+    },
+    includeEpic,
   };
-}
-
-// Helper function to check if an epic or any of its descendants match the filters
-function epicHasMatchingDescendants(epic: Epic, filters: FilterState): boolean {
-  // Check if the epic itself matches
-  if (matchesFilters(epic, filters)) return true;
-  
-  // Check if any feature or its tasks match
-  for (const feature of epic.features) {
-    if (matchesFilters(feature, filters)) return true;
-    for (const task of feature.tasks) {
-      if (matchesFilters(task, filters)) return true;
-    }
-  }
-  
-  return false;
 }
 
 export function RepositoryContent({
@@ -189,7 +181,7 @@ export function RepositoryContent({
   const filteredData = useMemo(() => {
     if (!data) return null;
 
-    // For "All" filter, show everything
+    // For "All" filter with no other filters, show everything
     if (filters.githubState === "all" && filters.statusLabels.length === 0 && filters.actionable.length === 0) {
       return data;
     }
@@ -197,12 +189,8 @@ export function RepositoryContent({
     // For Open/Closed filters, include parents if their children match
     const filteredEpics = data.hierarchy.epics
       .map((epic) => filterEpicFeatures(epic, filters))
-      .filter((epic) => {
-        // Keep epic if it matches filters OR has features/tasks that match
-        const epicMatches = matchesFilters(epic, filters);
-        const hasMatchingFeatures = epic.features.length > 0;
-        return epicMatches || hasMatchingFeatures;
-      });
+      .filter((result) => result.includeEpic)
+      .map((result) => result.epic);
 
     return {
       ...data,
