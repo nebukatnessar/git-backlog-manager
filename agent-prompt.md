@@ -58,6 +58,29 @@ That is a different skill. Rules:
   delete. Unintended deletions = restore and redo more surgically.
 - Never delete code "because it looked unused" unless the issue requires it.
 
+## When the sandbox can't edit a file
+
+If a file is too large (or otherwise fails) for sandbox file operations,  
+DO NOT give up and DO NOT hand the work to a human. You have GitHub  
+tools — use them as your filesystem:
+
+- Read the file with the GitHub file-contents tool.
+- Transform it in memory: locate the insertion/replacement point by  
+  string search, build the new content by concatenating the parts  
+  (before + your change + after). Work on the file in chunks if needed.
+- Write it back with the GitHub create-or-update-file tool as a commit  
+  on your branch. Provide the file's blob SHA when updating.
+
+Hard rule: a pull request must contain the actual code change as  
+commits. A PR whose body says "manually integrate this snippet" is  
+FORBIDDEN — that is not an implementation, it is a rejected story. If  
+after trying both sandbox file writes AND GitHub-tool writes you still  
+cannot produce the change, then: label the issue  
+`actionable:rejected`, post ONE comment inside  
+`<!-- AI_CONVERSATION -->` containing the snippet, the exact point of  
+insertion, and a `[question]` line stating the tool limitation you hit,  
+and stop without opening a PR.
+
 ## Verification
 
 Before opening the PR, verify your work in the sandbox at the HIGHEST  
