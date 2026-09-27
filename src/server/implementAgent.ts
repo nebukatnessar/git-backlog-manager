@@ -89,13 +89,14 @@ export function hasInProgressLabel(issue: GitHubIssue): boolean {
   return labels.includes(AGENT_IN_PROGRESS_LABEL);
 }
 
-export function buildIssuePrompt(issue: GitHubIssue): string {
+export function buildIssuePrompt(issue: GitHubIssue, owner?: string, repo?: string): string {
   const labels = (issue.labels || [])
     .map((label) => (typeof label === "string" ? label : label.name))
     .filter(Boolean)
     .join(", ");
+  const target = owner && repo ? `${owner}/${repo}` : "the repository you are configured for";
   return [
-    `Implement GitHub issue #${issue.number} in the repository you are configured for.`,
+    `Implement GitHub issue #${issue.number} in the repository ${target}. This is the ONLY repository you may read or modify; the branch and pull request rules from your instructions apply to it.`,
     "",
     `Title: ${issue.title}`,
     "",
@@ -216,7 +217,7 @@ async function executeRun(run: AgentRun, mistralApiKey: string, agentId: string,
 
     console.log(`Agent run ${run.runId} starting conversation (turn 1) for ${issueUrl}`);
     const conversation = await withTurnTimeout(
-      startAgentConversation(mistralApiKey, agentId, buildIssuePrompt(issue)),
+      startAgentConversation(mistralApiKey, agentId, buildIssuePrompt(issue, run.owner, run.repo)),
     );
     run.conversationId = conversation.conversationId;
     console.log(`Agent run ${run.runId} turn 1 finished (conversation ${conversation.conversationId})`);

@@ -90,7 +90,11 @@ questions when the story lacks information.
 
 The agent system prompt lives in `agent-prompt.md` and is editable without
 code changes (`AGENT_PROMPT_PATH` to override the location). The current prompt
-body is served at `GET /api/agent/prompt`.
+body is served at `GET /api/agent/prompt`. The prompt is repository-agnostic:
+the concrete `owner/repo` is injected into each run's task prompt, so the same
+agent setup works for any repository managed by the app. The Mistral agent and
+connector names are configurable via `MISTRAL_AGENT_NAME` (default
+`implement-agent`) and `MISTRAL_CONNECTOR_NAME` (default `github-mcp`).
 
 ### Environment variables
 
@@ -99,6 +103,8 @@ MISTRAL_API_KEY=your_mistral_api_key
 GITHUB_PAT=your_scoped_github_pat
 # optional
 MISTRAL_AGENT_MODEL=devstral-2-latest
+MISTRAL_AGENT_NAME=implement-agent
+MISTRAL_CONNECTOR_NAME=github-mcp
 AGENT_PROMPT_PATH=./agent-prompt.md
 AGENT_RUN_BUDGET_MS=2700000
 MISTRAL_BASE_URL=https://api.mistral.ai/v1

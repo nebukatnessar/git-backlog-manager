@@ -28,7 +28,7 @@ import {
   updateIssueComment,
 } from "./github";
 import { labelColor as agentLabelColor } from "./agentLabels";
-import { MistralApiError, checkGitHubPatForMcp, ensureImplementAgent, findImplementAgent, getAgentById, getConversationHistory, listModels, loadAgentPrompt, modelSupportsConnectors } from "./mistralAgents";
+import { IMPLEMENT_AGENT_NAME, MistralApiError, checkGitHubPatForMcp, ensureImplementAgent, findImplementAgent, getAgentById, getConversationHistory, listModels, loadAgentPrompt, modelSupportsConnectors } from "./mistralAgents";
 import {
   AGENT_RUN_BUDGET_MS,
   MAX_CONCURRENT_AGENT_RUNS,
@@ -963,7 +963,7 @@ app.get("/api/agent/debug", async (_req: Request, res: Response) => {
       return res.json({
         configuredModel: process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest",
         agent: null,
-        message: "No agent named webdaw-implement-agent exists yet. It is created on the first Implement run.",
+        message: `No agent named ${IMPLEMENT_AGENT_NAME} exists yet. It is created on the first Implement run.`,
       });
     }
     const full = await getAgentById(mistralApiKey, agent.id);

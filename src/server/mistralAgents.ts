@@ -9,8 +9,8 @@ const longRunFetch = undiciFetch as unknown as typeof fetch;
 const longRunInit = { dispatcher: longRunDispatcher } as unknown as RequestInit;
 
 export const GITHUB_MCP_SERVER_URL = process.env.GITHUB_MCP_SERVER_URL || "https://api.githubcopilot.com/mcp/";
-export const IMPLEMENT_AGENT_NAME = "webdaw-implement-agent";
-export const GITHUB_CONNECTOR_NAME = "webdaw-github-mcp";
+export const IMPLEMENT_AGENT_NAME = process.env.MISTRAL_AGENT_NAME || "implement-agent";
+export const GITHUB_CONNECTOR_NAME = process.env.MISTRAL_CONNECTOR_NAME || "github-mcp";
 
 export interface GitHubPatCheckResult {
   ok: boolean;
@@ -223,8 +223,8 @@ async function createGitHubConnector(apiKey: string): Promise<string> {
           method: "POST",
           body: JSON.stringify({
             name: GITHUB_CONNECTOR_NAME,
-            title: "WebDaw GitHub MCP",
-            description: "GitHub MCP tools for the WebDaw repository, authenticated with a scoped PAT.",
+            title: "GitHub MCP",
+            description: "GitHub MCP tools, authenticated with a scoped PAT.",
             server: GITHUB_MCP_SERVER_URL,
             visibility,
             protocol: "mcp",
@@ -253,7 +253,7 @@ const CONSUMER_SCOPES = ["user", "workspace", "organization"] as const;
 async function storeConnectorCredential(apiKey: string, connectorId: string, githubPat: string): Promise<void> {
   const credentialBody = JSON.stringify({
     name: "github-pat",
-    title: "WebDaw scoped PAT",
+    title: "Scoped GitHub PAT",
     credentials: { bearer_token: githubPat },
   });
 
@@ -343,7 +343,7 @@ export async function ensureImplementAgent(apiKey: string, githubPat: string, pr
   const payload = {
     model,
     name: IMPLEMENT_AGENT_NAME,
-    description: "Implements a single WebDaw task issue and opens a draft PR, or rejects it with structured questions.",
+    description: "Implements a single task issue and opens a draft PR, or rejects it with structured questions.",
     instructions: loadAgentPrompt(projectDir),
     tools,
   };
