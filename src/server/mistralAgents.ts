@@ -1,16 +1,12 @@
 import path from "node:path";
 import fs from "node:fs";
-import { Agent as UndiciAgent, setGlobalDispatcher } from "undici";
+import { Agent as UndiciAgent, fetch as undiciFetch } from "undici";
 
 const MISTRAL_BASE_URL = process.env.MISTRAL_BASE_URL || "https://api.mistral.ai/v1";
 
-setGlobalDispatcher(
-  new UndiciAgent({
-    headersTimeout: 0,
-    bodyTimeout: 0,
-  }),
-);
-const dispatcherOptions = { headersTimeout: 0, bodyTimeout: 0 } as const;
+const longRunDispatcher = new UndiciAgent({ headersTimeout: 0, bodyTimeout: 0 });
+const longRunFetch = undiciFetch as unknown as typeof fetch;
+const longRunInit = { dispatcher: longRunDispatcher } as unknown as RequestInit;
 
 export const GITHUB_MCP_SERVER_URL = process.env.GITHUB_MCP_SERVER_URL || "https://api.githubcopilot.com/mcp/";
 export const IMPLEMENT_AGENT_NAME = "webdaw-implement-agent";
@@ -105,12 +101,11 @@ function mistralHeaders(apiKey: string, jsonBody = false): Record<string, string
 async function mistralFetch<T>(apiKey: string, url: string, init: RequestInit = {}, operation = "request"): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = (await longRunFetch(url, {
       ...init,
+      ...longRunInit,
       headers: { ...mistralHeaders(apiKey, Boolean(init.body)), ...(init.headers as Record<string, string>) },
-      // @ts-expect-error undici dispatcher is supported by Node fetch but absent from RequestInit types
-      dispatcher: new UndiciAgent(dispatcherOptions),
-    });
+    })) as unknown as Response;
   } catch (networkError) {
     console.error(`Mistral API ${operation} (${url}) network error:`, networkError);
     throw new Error(`Mistral API ${operation} failed: ${networkError instanceof Error ? networkError.message : String(networkError)}`);
