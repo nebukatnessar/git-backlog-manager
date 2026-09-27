@@ -60,3 +60,190 @@ npm test
 ```
 
 Current TypeScript tests cover namespaced label parsing and hierarchy reconstruction. Use `npm run build` to type-check and compile without starting the server.
+
+## Implement agent
+
+The app can spin up a Mistral coding agent (Devstral) that attempts to implement a
+single task issue and open a draft PR, or reject the issue with structured
+questions when the story lacks information.
+
+### How it works
+
+- Task cards show an **Implement** button, enabled only when the issue has both
+  `type:task` and `actionable:ready` labels. The work item detail page shows the
+  full agent panel with run status, PR link, and the agent's questions.
+- On start, the backend adds `agent:in-progress` (guards against double-firing,
+  max 2 concurrent runs globally), builds a prompt from the issue body and
+  labels, and starts an agent conversation via the Mistral Agents API.
+- The agent has a code-execution connector and a GitHub MCP connector
+  (authenticated with the scoped `GITHUB_PAT`) so it can push to
+  `agent/<issue-number>` and open a draft PR referencing `Closes #<N>`.
+- On success the backend verifies a PR exists, labels the issue
+  `actionable:implemented` and removes `agent:in-progress`.
+- On rejection the agent posts one comment wrapped in `<!-- AI_CONVERSATION -->`
+  with `[question]`/`[dependency]` prefixed lines, and labels the issue
+  `actionable:rejected`. The card renders these as structured items; answers are
+  submitted from the card, appended inside the same comment, and the issue is
+  relabeled `actionable:ready`, which re-enables the button.
+- Each run has a time budget (`AGENT_RUN_BUDGET_MS`, default 45 minutes);
+  overruns stop gracefully and are reported on the issue.
+
+The agent system prompt lives in `agent-prompt.md` and is editable without
+code changes (`AGENT_PROMPT_PATH` to override the location). The current prompt
+body is served at `GET /api/agent/prompt`. The prompt is repository-agnostic:
+the concrete `owner/repo` is injected into each run's task prompt.
+
+Each repository gets its **own Mistral agent**, named
+`<MISTRAL_AGENT_NAME>--<owner>--<repo>` (e.g. `implement-agent--nebukatnessar--webdaw`),
+created on the first Implement run for that repository and reused afterwards.
+The shared GitHub MCP connector is common to all of them.
+
+Repositories can define **repo-specific agent skills**: create an
+`AGENT_SKILLS.md` file at the repository root (test commands, build tooling,
+conventions, architecture notes). On each bootstrap the backend fetches it via
+the GitHub API and appends it to the agent's instructions under a
+"Repository-specific skills" heading, so each repo's agent carries its own
+playbook. The file is optional; without it the base prompt is used as-is.
+
+### Environment variables
+
+```env
+MISTRAL_API_KEY=your_mistral_api_key
+GITHUB_PAT=your_scoped_github_pat
+# optional
+MISTRAL_AGENT_MODEL=devstral-2-latest
+MISTRAL_AGENT_NAME=implement-agent
+MISTRAL_CONNECTOR_NAME=github-mcp
+AGENT_PROMPT_PATH=./agent-prompt.md
+AGENT_RUN_BUDGET_MS=2700000
+MISTRAL_BASE_URL=https://api.mistral.ai/v1
+MISTRAL_CONNECTOR_VISIBILITY=private
+GITHUB_MCP_SERVER_URL=https://api.githubcopilot.com/mcp/
+```
+
+Before bootstrapping the agent, the backend validates `GITHUB_PAT` directly
+against the GitHub REST API (`GET /user`) and the GitHub MCP server
+(JSON-RPC `initialize` handshake). If either rejects the token, the run is
+not started and the exact rejection (status code + GitHub's response body)
+is logged server-side and returned in `details`.
+
+The GitHub MCP connector is created with `visibility: private` first and
+automatically falls back to `shared_workspace`, then `shared_org`, when the
+API key lacks the primitive access scope required for private connectors
+(`personal_and_shared`). Set `MISTRAL_CONNECTOR_VISIBILITY` to pin one
+explicitly.
+
+If starting a run fails, the server log names the failing Mistral or
+GitHub API call, its status code and the API error message (e.g.
+`Mistral API update connector credentials ... failed with status 422`).
+The same message is returned to the UI in the `details` field of the
+error response, so failures show up directly on the agent panel.
+
+#### Troubleshooting `401 Invalid credentials provided`
+
+When Mistral reports `401 {"detail":"Invalid credentials provided"}` during
+connector credential setup, it has validated the stored `GITHUB_PAT` against
+GitHub's MCP server and GitHub rejected it — but Mistral does not surface the
+underlying reason. The backend now preflights the token itself, so the actual
+error (bad credentials, expired/revoked token, truncated token, or the MCP
+endpoint being unavailable to the account) is reported instead. Common
+causes to check:
+
+- The token was copied incompletely (fine-grained tokens are long
+  `github_pat_...` strings that wrap easily).
+- The token has expired or was revoked.
+- The account or organization restricts access to the GitHub MCP endpoint
+  (`https://api.githubcopilot.com/mcp/`).
+
+Run `GET /api/agent/check` to pinpoint which step fails: it returns which
+step (`rest` or `mcp`) rejected the token, the status code, and GitHub's
+response body. `step: "rest"` means the token itself is invalid (check
+expiry/revocation/copy-paste); `step: "mcp"` means the token works for the
+REST API but not for the MCP endpoint (check account/org access to
+`api.githubcopilot.com`). Use `GITHUB_MCP_SERVER_URL` if you need to point
+the connector and the preflight at a different GitHub MCP endpoint.
+
+`GITHUB_PAT` must be a **fine-grained personal access token scoped to the
+WebDaw repository only**, with these permissions:
+
+| Permission | Access |
+| --- | --- |
+| Contents | Read and write |
+| Pull requests | Read and write |
+| Issues | Read and write |
+
+Create it under *GitHub → Settings → Developer settings → Fine-grained
+tokens*, select only the WebDaw repository, and grant exactly the permissions
+above. The PAT is stored only in the app backend (env var) and is never sent to
+the browser; it is passed once to Mistral as the GitHub MCP connector
+credential so the agent can act on that repository and nothing else.
+
+`GITHUB_TOKEN` and `GITHUB_PAT` can point to the **same** fine-grained PAT —
+the simplest setup is one token scoped to the repositories you manage.
+The server resolves the app token as `GITHUB_TOKEN` first, then falls back
+to `GITHUB_PAT`, so you can set only `GITHUB_PAT` and everything
+(repo listing, issues, comments, labels, and the agent connector) works
+with it:
+
+| Env var | Used for | Scope needed |
+| --- | --- | --- |
+| `GITHUB_TOKEN` | The backlog app itself: listing repositories, issues, comments, labels | Broad — must see every repo you manage |
+| `GITHUB_PAT` | The Mistral agent's GitHub MCP connector; also the fallback app token when `GITHUB_TOKEN` is unset | Must include WebDaw with contents/PRs/issues read-write |
+
+One caveat: if the backlog app manages repositories beyond WebDaw and you
+use a single WebDaw-only token, the repository list (`GET /api/repos`) will
+only show WebDaw — because the token simply cannot see anything else.
+If you need the app to manage other repositories, either scope the single
+token to all of them, or keep two tokens: a broad `GITHUB_TOKEN` plus a
+WebDaw-only `GITHUB_PAT` for the agent (the agent then stays unable to touch
+anything but WebDaw).
+
+### Scoping agent
+
+For task issues that are not yet `actionable:ready`, a second agent can
+decide whether the story is actionable. Click **Scope** on the issue card
+(or in the agent panel) to start it. It inspects the repository via the
+GitHub MCP connector, then either labels the issue `actionable:ready` or
+labels it `actionable:rejected` and posts one comment wrapped in
+`<!-- AI_CONVERSATION -->` with its questions (the same comment channel the
+implement agent uses). Its system prompt lives in `scoping-prompt.md`.
+
+Each repository also gets its own scoping agent, named
+`<MISTRAL_SCOPING_AGENT_NAME>--<owner>--<repo>`, created on the first Scope
+run for that repository. `AGENT_SKILLS.md` is appended to its instructions
+too. It reuses the same GitHub MCP connector and `GITHUB_PAT` as the
+implement agent.
+
+### Agents popup
+
+The repository header has an **Agents** button that opens a popup showing
+the debug info for both agents (ids, names, models, tools, connector
+status), the active implement/scoping runs, and the most recent runs of
+the current server session.
+
+### API
+
+- `POST /api/repos/:repo/issues/:issueNumber/implement` — start an agent run
+- `GET /api/repos/:repo/issues/:issueNumber/agent-run` — run status, parsed
+  questions, eligibility, concurrency
+- `POST /api/repos/:repo/issues/:issueNumber/scope` — start a scoping run on a
+  task that is not yet `actionable:ready`
+- `GET /api/repos/:repo/issues/:issueNumber/scoping-run` — latest scoping run
+  status for the issue
+- `GET /api/agent/runs?owner=…&repo=…` — all implement and scoping runs of the
+  current server session (optionally filtered to one repository)
+- `POST /api/repos/:repo/issues/:issueNumber/answers` — submit answers to the
+  agent's questions (relabels the issue `actionable:ready`)
+- `GET /api/agent/models` — list the Mistral models available to your API key
+  (use one of these ids for `MISTRAL_AGENT_MODEL`; the default is
+  `devstral-2-latest`, and Mistral rejects unknown ids with
+  `Model ... is currently not in use`)
+- `GET /api/agent/prompt` — current agent system prompt
+- `GET /api/agent/check` — validate `GITHUB_PAT` against the GitHub REST API
+  and MCP server; returns `{ ok, step, message, login }` and pinpoints which
+  side rejects the token
+- `GET /api/token/check` — validate the **app token** (`GITHUB_TOKEN` or
+  `GITHUB_PAT`) against the GitHub REST API; reports which env var is in use,
+  a masked fingerprint (first/last 4 chars + length), and the login it
+  resolves to. Use this when API calls fail with `401 Bad credentials` to see
+  exactly which token the server is actually sending.

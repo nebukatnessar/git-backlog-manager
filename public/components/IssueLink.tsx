@@ -1,13 +1,18 @@
 import React from "react";
-import { Stack, Typography } from "@mui/material";
+import { Button, Stack, Tooltip, Typography } from "@mui/material";
+import { PlayCircle, TravelExplore } from "@mui/icons-material";
 import { type WorkItem } from "../../src/shared/workItems";
 
 interface IssueLinkProps {
   issue: WorkItem;
   onClick?: () => void;
+  onImplement?: (issueNumber: number) => void;
+  implementingIssue?: number | null;
+  onScope?: (issueNumber: number) => void;
+  scopingIssue?: number | null;
 }
 
-export function IssueLink({ issue, onClick }: IssueLinkProps): React.JSX.Element {
+export function IssueLink({ issue, onClick, onImplement, implementingIssue, onScope, scopingIssue }: IssueLinkProps): React.JSX.Element {
   const handleClick = (e: React.MouseEvent) => {
     if (onClick) {
       e.preventDefault();
@@ -68,6 +73,41 @@ export function IssueLink({ issue, onClick }: IssueLinkProps): React.JSX.Element
         >
           priority: {issue.labels.priority}
         </Typography>
+      )}
+      {onImplement && issue.labels.type === "task" && issue.labels.actionable === "ready" && (
+        <Tooltip title={implementingIssue === issue.number ? "Agent run in progress" : "Run the implement agent on this task"}>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<PlayCircle fontSize="small" />}
+            disabled={implementingIssue === issue.number}
+            onClick={(event) => {
+              event.stopPropagation();
+              onImplement(issue.number);
+            }}
+            sx={{ ml: "auto", minHeight: 24, fontSize: "0.75rem" }}
+          >
+            {implementingIssue === issue.number ? "Running…" : "Implement"}
+          </Button>
+        </Tooltip>
+      )}
+      {onScope && issue.labels.type === "task" && issue.labels.actionable && issue.labels.actionable !== "ready" && issue.labels.actionable !== "implemented" && (
+        <Tooltip title={scopingIssue === issue.number ? "Scoping agent in progress" : "Let the scoping agent decide if this task is actionable"}>
+          <Button
+            size="small"
+            variant="outlined"
+            color="secondary"
+            startIcon={<TravelExplore fontSize="small" />}
+            disabled={scopingIssue === issue.number}
+            onClick={(event) => {
+              event.stopPropagation();
+              onScope(issue.number);
+            }}
+            sx={{ ml: onImplement && issue.labels.actionable === "ready" ? 1 : "auto", minHeight: 24, fontSize: "0.75rem" }}
+          >
+            {scopingIssue === issue.number ? "Scoping…" : "Scope"}
+          </Button>
+        </Tooltip>
       )}
     </Stack>
   );

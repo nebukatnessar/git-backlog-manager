@@ -1,0 +1,561 @@
+import path from "node:path";
+import fs from "node:fs";
+import { Agent as UndiciAgent, fetch as undiciFetch } from "undici";
+import { fetchRepoFile } from "./github";
+
+const MISTRAL_BASE_URL = process.env.MISTRAL_BASE_URL || "https://api.mistral.ai/v1";
+
+const longRunDispatcher = new UndiciAgent({ headersTimeout: 0, bodyTimeout: 0 });
+const longRunFetch = undiciFetch as unknown as typeof fetch;
+const longRunInit = { dispatcher: longRunDispatcher } as unknown as RequestInit;
+
+export const GITHUB_MCP_SERVER_URL = process.env.GITHUB_MCP_SERVER_URL || "https://api.githubcopilot.com/mcp/";
+export const IMPLEMENT_AGENT_NAME = process.env.MISTRAL_AGENT_NAME || "implement-agent";
+export const GITHUB_CONNECTOR_NAME = process.env.MISTRAL_CONNECTOR_NAME || "github-mcp";
+
+export interface GitHubPatCheckResult {
+  ok: boolean;
+  step: "rest" | "mcp";
+  message: string;
+  login?: string;
+}
+
+export async function checkGitHubPatForMcp(pat: string): Promise<GitHubPatCheckResult> {
+  let login: string | undefined;
+
+  try {
+    const rest = await fetch("https://api.github.com/user", {
+      headers: { Authorization: `Bearer ${pat}`, "User-Agent": "git-backlog-manager", Accept: "application/vnd.github+json" },
+    });
+    if (!rest.ok) {
+      const body = await rest.text();
+      return { ok: false, step: "rest", message: `GitHub REST API rejected GITHUB_PAT (status ${rest.status}): ${body.slice(0, 300)}` };
+    }
+    const user = (await rest.json()) as { login?: string };
+    login = user.login;
+  } catch (error) {
+    return { ok: false, step: "rest", message: `Could not reach the GitHub REST API to validate GITHUB_PAT: ${error instanceof Error ? error.message : String(error)}` };
+  }
+
+  try {
+    const mcp = await fetch(GITHUB_MCP_SERVER_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${pat}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "git-backlog-manager", version: "1.0.0" } },
+      }),
+    });
+    if (!mcp.ok) {
+      const body = await mcp.text();
+      return {
+        ok: false,
+        step: "mcp",
+        message: `GitHub MCP server rejected GITHUB_PAT (status ${mcp.status}): ${body.slice(0, 300)}`,
+        login,
+      };
+    }
+  } catch (error) {
+    return { ok: false, step: "mcp", message: `Could not reach the GitHub MCP server to validate GITHUB_PAT: ${error instanceof Error ? error.message : String(error)}` };
+  }
+
+  return { ok: true, step: "mcp", message: "GITHUB_PAT is valid for the GitHub REST API and the GitHub MCP server.", login };
+}
+
+export class MistralApiError extends Error {
+  constructor(public statusCode: number, public details: string, public apiMessage: string) {
+    super(`Mistral API request failed (${statusCode}): ${apiMessage}`);
+  }
+}
+
+interface MistralConnector {
+  id: string;
+  name: string;
+  object?: string;
+}
+
+interface MistralAgent {
+  id: string;
+  name: string;
+  object?: string;
+}
+
+export interface AgentSetupResult {
+  agentId: string;
+  connectorId: string;
+}
+
+function mistralHeaders(apiKey: string, jsonBody = false): Record<string, string> {
+  return {
+    Accept: "application/json",
+    Authorization: `Bearer ${apiKey}`,
+    ...(jsonBody ? { "Content-Type": "application/json" } : {}),
+  };
+}
+
+async function mistralFetch<T>(apiKey: string, url: string, init: RequestInit = {}, operation = "request"): Promise<T> {
+  let response: Response;
+  try {
+    response = (await longRunFetch(url, {
+      ...init,
+      ...longRunInit,
+      headers: { ...mistralHeaders(apiKey, Boolean(init.body)), ...(init.headers as Record<string, string>) },
+    })) as unknown as Response;
+  } catch (networkError) {
+    console.error(`Mistral API ${operation} (${url}) network error:`, networkError);
+    throw new Error(`Mistral API ${operation} failed: ${networkError instanceof Error ? networkError.message : String(networkError)}`);
+  }
+
+  if (!response.ok) {
+    const details = await response.text();
+    let apiMessage = details;
+    try {
+      const parsed = JSON.parse(details) as { message?: string; detail?: string };
+      apiMessage = parsed.message || parsed.detail || details;
+    } catch {
+      // keep raw body as the message
+    }
+    console.error(`Mistral API ${operation} (${url}) failed with status ${response.status}:`, apiMessage);
+    const error = new MistralApiError(response.status, details, apiMessage);
+    throw error;
+  }
+  return (await response.json()) as T;
+}
+
+export async function listConnectors(apiKey: string): Promise<MistralConnector[]> {
+  const connectors: MistralConnector[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const url = new URL(`${MISTRAL_BASE_URL}/connectors`);
+    url.searchParams.set("page_size", "100");
+    if (cursor) url.searchParams.set("cursor", cursor);
+    const page = await mistralFetch<{
+      items?: MistralConnector[];
+      pagination?: { next_cursor?: string | null; nextCursor?: string | null };
+    }>(apiKey, url.toString(), {}, "list connectors");
+    const batch = page.items || [];
+    connectors.push(...batch);
+    cursor = page.pagination?.nextCursor || page.pagination?.next_cursor || undefined;
+    if (batch.length === 0) break;
+  } while (cursor);
+
+  return connectors;
+}
+
+export interface MistralModel {
+  id: string;
+  name?: string;
+  description?: string;
+  capabilities?: Record<string, unknown>;
+  deprecation?: string | null;
+  default_model_temperature?: number | null;
+  max_context_length?: number | null;
+  creation_date?: string | null;
+}
+
+export function modelSupportsFunctionCalling(model: MistralModel): boolean {
+  const caps = model.capabilities as { functionCalling?: boolean; function_calling?: boolean } | undefined;
+  return Boolean(caps?.functionCalling ?? caps?.function_calling);
+}
+
+export function modelSupportsConnectors(model: MistralModel): boolean {
+  const id = model.id.toLowerCase();
+  if (id.startsWith("codestral") || id.startsWith("mistral-ocr") || id.startsWith("voxtral")) return false;
+  return modelSupportsFunctionCalling(model);
+}
+
+export async function listModels(apiKey: string): Promise<MistralModel[]> {
+  const result = await mistralFetch<{ data?: MistralModel[] }>(apiKey, `${MISTRAL_BASE_URL}/models`, {}, "list models");
+  return (result.data || []).map((model) => ({ ...model, capabilities: model.capabilities || {} }));
+}
+
+export async function listAgents(apiKey: string): Promise<MistralAgent[]> {
+  const agents: MistralAgent[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const url = new URL(`${MISTRAL_BASE_URL}/agents/pages`);
+    url.searchParams.set("page_size", "100");
+    if (pageToken) url.searchParams.set("page_token", pageToken);
+    const result = await mistralFetch<{ data?: MistralAgent[]; next_page_token?: string | null }>(
+      apiKey,
+      url.toString(),
+      {},
+      "list agents",
+    );
+    const batch = result.data || [];
+    agents.push(...batch);
+    pageToken = result.next_page_token || undefined;
+    if (batch.length === 0) break;
+  } while (pageToken);
+
+  return agents;
+}
+
+async function ensureGitHubConnector(apiKey: string, githubPat: string): Promise<string> {
+  const connectors = await listConnectors(apiKey);
+  const existing = connectors.find((connector) => connector.name === GITHUB_CONNECTOR_NAME);
+  const connectorId = existing ? existing.id : await createGitHubConnector(apiKey);
+  await storeConnectorCredential(apiKey, connectorId, githubPat);
+  await activateConnector(apiKey, connectorId);
+  return connectorId;
+}
+
+async function createGitHubConnector(apiKey: string): Promise<string> {
+  const configuredVisibility = process.env.MISTRAL_CONNECTOR_VISIBILITY;
+  const candidates = configuredVisibility
+    ? [configuredVisibility]
+    : ["private", "shared_workspace", "shared_org"];
+
+  let lastError: unknown = null;
+  for (const visibility of candidates) {
+    try {
+      const connector = await mistralFetch<MistralConnector>(
+        apiKey,
+        `${MISTRAL_BASE_URL}/connectors`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            name: GITHUB_CONNECTOR_NAME,
+            title: "GitHub MCP",
+            description: "GitHub MCP tools, authenticated with a scoped PAT.",
+            server: GITHUB_MCP_SERVER_URL,
+            visibility,
+            protocol: "mcp",
+            auth_methods: [{ method_type: "bearer" }],
+          }),
+        },
+        `create connector (visibility: ${visibility})`,
+      );
+      return connector.id;
+    } catch (error) {
+      lastError = error;
+      if (error instanceof MistralApiError && (error.statusCode === 422 || error.statusCode === 403)) {
+        console.warn(
+          `Connector visibility "${visibility}" was rejected; trying the next option. Set MISTRAL_CONNECTOR_VISIBILITY to choose explicitly.`,
+        );
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
+const CONSUMER_SCOPES = ["user", "workspace", "organization"] as const;
+
+async function storeConnectorCredential(apiKey: string, connectorId: string, githubPat: string): Promise<void> {
+  const credentialBody = JSON.stringify({
+    name: "github-pat",
+    title: "Scoped GitHub PAT",
+    credentials: { bearer_token: githubPat },
+  });
+
+  let lastError: unknown = null;
+  for (const scope of CONSUMER_SCOPES) {
+    const url = `${MISTRAL_BASE_URL}/connectors/${connectorId}/${scope}/credentials`;
+    try {
+      await mistralFetch(apiKey, url, { method: "PATCH", body: credentialBody }, `update ${scope} connector credentials`);
+      return;
+    } catch (patchError) {
+      lastError = patchError;
+      const patchStatus = patchError instanceof MistralApiError ? patchError.statusCode : null;
+      if (patchStatus !== 404 && patchStatus !== 403 && patchStatus !== 422) throw patchError;
+    }
+
+    try {
+      await mistralFetch(apiKey, url, { method: "POST", body: credentialBody }, `create ${scope} connector credentials`);
+      return;
+    } catch (createError) {
+      lastError = createError;
+      const createStatus = createError instanceof MistralApiError ? createError.statusCode : null;
+      if (createStatus !== 404 && createStatus !== 403 && createStatus !== 422) throw createError;
+      console.warn(`Could not store connector credentials at ${scope} scope; trying the next scope.`);
+    }
+  }
+  throw lastError;
+}
+
+async function activateConnector(apiKey: string, connectorId: string): Promise<void> {
+  let lastError: unknown = null;
+  for (const scope of CONSUMER_SCOPES) {
+    try {
+      await mistralFetch(
+        apiKey,
+        `${MISTRAL_BASE_URL}/connectors/${connectorId}/${scope}/activate`,
+        { method: "POST" },
+        `activate connector (${scope})`,
+      );
+      return;
+    } catch (error) {
+      lastError = error;
+      const status = error instanceof MistralApiError ? error.statusCode : null;
+      if (status !== 404 && status !== 403 && status !== 422) throw error;
+      console.warn(`Could not activate connector at ${scope} scope; trying the next scope.`);
+    }
+  }
+  throw lastError;
+}
+
+export function loadAgentPrompt(projectDir: string): string {
+  const promptPath = process.env.AGENT_PROMPT_PATH || path.join(projectDir, "agent-prompt.md");
+  return loadPromptFile(promptPath);
+}
+
+export function loadScopingPrompt(projectDir: string): string {
+  const promptPath = process.env.SCOPING_PROMPT_PATH || path.join(projectDir, "scoping-prompt.md");
+  return loadPromptFile(promptPath);
+}
+
+function loadPromptFile(promptPath: string): string {
+  let raw = "";
+  try {
+    raw = fs.readFileSync(promptPath, "utf-8");
+  } catch (error) {
+    console.warn(`Could not read agent prompt from ${promptPath}:`, error);
+  }
+  const marker = "## PROMPT BODY BELOW";
+  const markerIndex = raw.indexOf(marker);
+  const body = markerIndex === -1 ? raw : raw.slice(markerIndex + marker.length);
+  return body.trim();
+}
+
+export async function getAgentById(apiKey: string, agentId: string): Promise<Record<string, unknown>> {
+  return mistralFetch<Record<string, unknown>>(apiKey, `${MISTRAL_BASE_URL}/agents/${agentId}`, {}, "get agent");
+}
+
+export async function findImplementAgent(apiKey: string): Promise<MistralAgent | null> {
+  const agents = await listAgents(apiKey);
+  return agents.find((agent) => agent.name === IMPLEMENT_AGENT_NAME) || null;
+}
+
+export function agentNameForRepo(owner: string, repo: string): string {
+  const base = process.env.MISTRAL_AGENT_NAME || "implement-agent";
+  return `${base}--${owner}--${repo}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+}
+
+export function scopingAgentNameForRepo(owner: string, repo: string): string {
+  const base = process.env.MISTRAL_SCOPING_AGENT_NAME || "scoping-agent";
+  return `${base}--${owner}--${repo}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+}
+
+export async function findRepoAgent(apiKey: string, owner: string, repo: string): Promise<MistralAgent | null> {
+  const agents = await listAgents(apiKey);
+  return agents.find((agent) => agent.name === agentNameForRepo(owner, repo)) || null;
+}
+
+export async function findRepoScopingAgent(apiKey: string, owner: string, repo: string): Promise<MistralAgent | null> {
+  const agents = await listAgents(apiKey);
+  return agents.find((agent) => agent.name === scopingAgentNameForRepo(owner, repo)) || null;
+}
+
+export async function ensureRepoScopingAgent(
+  apiKey: string,
+  githubPat: string,
+  projectDir: string,
+  owner: string,
+  repo: string,
+): Promise<AgentBootstrapResult> {
+  const connectorId = await ensureGitHubConnector(apiKey, githubPat);
+  const agentName = scopingAgentNameForRepo(owner, repo);
+  console.log(`Scoping agent bootstrap for ${owner}/${repo}: using GitHub MCP connector ${connectorId}`);
+
+  const skills = await fetchRepoFile(githubPat, owner, repo, "AGENT_SKILLS.md");
+  const basePrompt = loadScopingPrompt(projectDir);
+  const instructions = skills
+    ? `${basePrompt}\n\n## Repository-specific skills\n\nThe repository ${owner}/${repo} defines extra instructions in its AGENT_SKILLS.md file. Follow them wherever they do not conflict with the rules above:\n\n${skills}`
+    : basePrompt;
+
+  const agents = await listAgents(apiKey);
+  const existing = agents.find((agent) => agent.name === agentName);
+  if (existing) {
+    console.log(`Scoping agent bootstrap for ${owner}/${repo}: found existing agent ${existing.id}`);
+  } else {
+    console.log(`Scoping agent bootstrap for ${owner}/${repo}: creating agent ${agentName}`);
+  }
+
+  const model = process.env.MISTRAL_SCOPING_MODEL || process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest";
+  const tools = [{ type: "connector", connector_id: connectorId }];
+  const payload = {
+    model,
+    name: agentName,
+    description: `Decides whether issues in ${owner}/${repo} are actionable, and labels them accordingly.`,
+    instructions,
+    tools,
+  };
+
+  if (existing) {
+    const updated = await mistralFetch<MistralAgent>(
+      apiKey,
+      `${MISTRAL_BASE_URL}/agents/${existing.id}`,
+      { method: "PATCH", body: JSON.stringify(payload) },
+      "update scoping agent",
+    );
+    return { agentId: updated.id, connectorId, agentName };
+  }
+
+  const created = await mistralFetch<MistralAgent>(apiKey, `${MISTRAL_BASE_URL}/agents`, { method: "POST", body: JSON.stringify(payload) }, "create scoping agent");
+  return { agentId: created.id, connectorId, agentName };
+}
+
+export interface AgentBootstrapResult extends AgentSetupResult {
+  agentName: string;
+}
+
+export async function ensureRepoImplementAgent(
+  apiKey: string,
+  githubPat: string,
+  projectDir: string,
+  owner: string,
+  repo: string,
+): Promise<AgentBootstrapResult> {
+  const connectorId = await ensureGitHubConnector(apiKey, githubPat);
+  const agentName = agentNameForRepo(owner, repo);
+  console.log(`Implement agent bootstrap for ${owner}/${repo}: using GitHub MCP connector ${connectorId}`);
+
+  const skills = await fetchRepoFile(githubPat, owner, repo, "AGENT_SKILLS.md");
+  const instructions = skills
+    ? `${loadAgentPrompt(projectDir)}\n\n## Repository-specific skills\n\nThe repository ${owner}/${repo} defines extra instructions in its AGENT_SKILLS.md file. Follow them wherever they do not conflict with the rules above:\n\n${skills}`
+    : loadAgentPrompt(projectDir);
+  if (skills) {
+    console.log(`Implement agent bootstrap for ${owner}/${repo}: loaded AGENT_SKILLS.md (${skills.length} chars)`);
+  }
+
+  const agents = await listAgents(apiKey);
+  const existing = agents.find((agent) => agent.name === agentName);
+  if (existing) {
+    console.log(`Implement agent bootstrap for ${owner}/${repo}: found existing agent ${existing.id}`);
+  } else {
+    console.log(`Implement agent bootstrap for ${owner}/${repo}: creating agent ${agentName}`);
+  }
+
+  const model = process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest";
+  const tools = [{ type: "code_interpreter" }, { type: "connector", connector_id: connectorId }];
+  const payload = {
+    model,
+    name: agentName,
+    description: `Implements a single task issue in ${owner}/${repo} and opens a draft PR, or rejects it with structured questions.`,
+    instructions,
+    tools,
+  };
+
+  if (existing) {
+    const updated = await mistralFetch<MistralAgent>(
+      apiKey,
+      `${MISTRAL_BASE_URL}/agents/${existing.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      },
+      "update agent",
+    );
+    return { agentId: updated.id, connectorId, agentName };
+  }
+
+  const created = await mistralFetch<MistralAgent>(
+    apiKey,
+    `${MISTRAL_BASE_URL}/agents`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    "create agent",
+  );
+  return { agentId: created.id, connectorId, agentName };
+}
+
+export interface ConversationOutputEntry {
+  type?: string;
+  content?: string | Array<{ type?: string; text?: string }>;
+}
+
+export interface ConversationStartResult {
+  conversationId: string;
+  outputs: ConversationOutputEntry[];
+}
+
+interface RawConversationStartResponse {
+  conversation_id?: string;
+  conversationId?: string;
+  outputs?: ConversationOutputEntry[];
+}
+
+export async function appendAgentConversation(
+  apiKey: string,
+  conversationId: string,
+  inputs: string,
+): Promise<ConversationStartResult> {
+  const response = await mistralFetch<RawConversationStartResponse>(
+    apiKey,
+    `${MISTRAL_BASE_URL}/conversations/${conversationId}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ inputs }),
+    },
+    "append conversation",
+  );
+  const conversationIdOut = response.conversation_id || response.conversationId || conversationId;
+  return { conversationId: conversationIdOut, outputs: response.outputs || [] };
+}
+
+export async function startAgentConversation(
+  apiKey: string,
+  agentId: string,
+  inputs: string,
+): Promise<ConversationStartResult> {
+  const response = await mistralFetch<RawConversationStartResponse>(
+    apiKey,
+    `${MISTRAL_BASE_URL}/conversations`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        agent_id: agentId,
+        inputs,
+        store: true,
+      }),
+    },
+    "start conversation",
+  );
+  const conversationId = response.conversation_id || response.conversationId;
+  if (!conversationId) {
+    throw new Error(`Mistral did not return a conversation id (response keys: ${Object.keys(response).join(", ")}).`);
+  }
+  return { conversationId, outputs: response.outputs || [] };
+}
+
+export async function getConversation(apiKey: string, conversationId: string): Promise<{ agentId?: string | null }> {
+  return mistralFetch<{ agentId?: string | null }>(
+    apiKey,
+    `${MISTRAL_BASE_URL}/conversations/${conversationId}`,
+    {},
+    "get conversation",
+  );
+}
+
+export interface ConversationHistoryEntry {
+  object?: string;
+  type?: string;
+  role?: string;
+  content?: unknown;
+  name?: string;
+  arguments?: string;
+  output?: unknown;
+  [key: string]: unknown;
+}
+
+export async function getConversationHistory(apiKey: string, conversationId: string): Promise<ConversationHistoryEntry[]> {
+  const result = await mistralFetch<{ entries?: ConversationHistoryEntry[] }>(
+    apiKey,
+    `${MISTRAL_BASE_URL}/conversations/${conversationId}/history`,
+    {},
+    "get conversation history",
+  );
+  return result.entries || [];
+}
