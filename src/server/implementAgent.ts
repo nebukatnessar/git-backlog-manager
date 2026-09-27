@@ -62,6 +62,10 @@ export function isRunActiveForIssue(owner: string, repo: string, issueNumber: nu
   return runsForIssue(owner, repo, issueNumber).some((run) => run.state === "running");
 }
 
+export function listAllRuns(): AgentRun[] {
+  return [...runs.values()].sort((a, b) => b.startedAt - a.startedAt);
+}
+
 export function activeRunCount(): number {
   return [...runs.values()].filter((run) => run.state === "running").length;
 }

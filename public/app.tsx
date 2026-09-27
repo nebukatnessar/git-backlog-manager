@@ -162,6 +162,7 @@ function App(): React.JSX.Element {
   const [loadingWorkItem, setLoadingWorkItem] = useState(false);
   const [workItemError, setWorkItemError] = useState("");
   const [implementingIssue, setImplementingIssue] = useState<number | null>(null);
+  const [scopingIssue, setScopingIssue] = useState<number | null>(null);
 
   // Read URL params
   function readUrlParams(): { repo?: string; state?: string; workItemId?: number } {
@@ -345,6 +346,23 @@ function App(): React.JSX.Element {
     }
   }, [selectedRepo, owner]);
 
+  const handleScopeIssue = useCallback(async (issueNumber: number) => {
+    setScopingIssue(issueNumber);
+    try {
+      const response = await fetch(
+        `/api/repos/${encodeURIComponent(selectedRepo)}/issues/${issueNumber}/scope?owner=${encodeURIComponent(owner)}`,
+        { method: "POST" }
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not start scoping run");
+      setWorkItemId(issueNumber);
+    } catch (scopeError) {
+      setError(scopeError instanceof Error ? scopeError.message : String(scopeError));
+    } finally {
+      setScopingIssue(null);
+    }
+  }, [selectedRepo, owner]);
+
   const handleSaveWorkItem = useCallback(async (issueNumber: number, body: string) => {
     if (!selectedRepo) return;
     setLoadingWorkItem(true);
@@ -414,6 +432,8 @@ function App(): React.JSX.Element {
               onSaveWorkItem={handleSaveWorkItem}
               onImplement={(issueNumber) => { void handleImplementIssue(issueNumber); }}
               implementingIssue={implementingIssue}
+              onScope={(issueNumber) => { void handleScopeIssue(issueNumber); }}
+              scopingIssue={scopingIssue}
             />
           )}
         </Box>

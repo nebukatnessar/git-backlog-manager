@@ -3,7 +3,7 @@ import {
   Alert, Box, Button, Chip, CircularProgress, Divider, LinearProgress, Paper,
   Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
-import { PlayCircle, SmartToy, OpenInNew, HelpOutline } from "@mui/icons-material";
+import { PlayCircle, SmartToy, OpenInNew, HelpOutline, TravelExplore } from "@mui/icons-material";
 
 export interface AgentRunInfo {
   runId: string;
@@ -19,6 +19,15 @@ export interface AgentQuestionInfo {
   kind: "question" | "dependency";
   text: string;
   answers: string[];
+}
+
+interface ScopingRunInfo {
+  runId: string;
+  state: "running" | "done" | "rejected" | "failed";
+  startedAt: number;
+  finishedAt?: number;
+  conversationId?: string;
+  message?: string;
 }
 
 interface AgentRunStatusResponse {
@@ -59,6 +68,8 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
   const [error, setError] = useState("");
   const [answers, setAnswers] = useState<string[]>([]);
   const [submittingAnswers, setSubmittingAnswers] = useState(false);
+  const [scopingRun, setScopingRun] = useState<ScopingRunInfo | null>(null);
+  const [scoping, setScoping] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchStatus = useCallback(async (): Promise<AgentRunStatusResponse | null> => {
@@ -69,6 +80,20 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
       const body = (await response.json()) as AgentRunStatusResponse;
       if (!response.ok) throw new Error(body.error || "Could not load agent run status");
       return body;
+    } catch (fetchError) {
+      setError(fetchError instanceof Error ? fetchError.message : String(fetchError));
+      return null;
+    }
+  }, [owner, repo, issueNumber]);
+
+  const fetchScopingRun = useCallback(async (): Promise<ScopingRunInfo | null> => {
+    try {
+      const response = await fetch(
+        `/api/repos/${encodeURIComponent(repo)}/issues/${issueNumber}/scoping-run?owner=${encodeURIComponent(owner)}`
+      );
+      const body = (await response.json()) as { run: ScopingRunInfo | null; error?: string };
+      if (!response.ok) throw new Error(body.error || "Could not load scoping run status");
+      return body.run || null;
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : String(fetchError));
       return null;
@@ -99,6 +124,25 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [fetchStatus, status?.run?.state]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      const run = await fetchScopingRun();
+      if (!cancelled && run) setScopingRun(run);
+    };
+
+    void load();
+    const timer = setInterval(() => {
+      if (scopingRun?.state === "running") void load();
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [fetchScopingRun, scopingRun?.state]);
 
   const canImplement =
     Boolean(issueType === "task") &&
@@ -153,6 +197,32 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
     }
   }, [owner, repo, issueNumber, answers, fetchStatus]);
 
+  const canScope =
+    Boolean(issueType === "task") &&
+    Boolean(actionableLabel) &&
+    actionableLabel !== "ready" &&
+    scopingRun?.state !== "running";
+
+  const handleScope = useCallback(async () => {
+    setScoping(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/repos/${encodeURIComponent(repo)}/issues/${issueNumber}/scope?owner=${encodeURIComponent(owner)}`,
+        { method: "POST" }
+      );
+      const body = (await response.json()) as { run?: ScopingRunInfo; error?: string; details?: string };
+      if (!response.ok) {
+        throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not start scoping run");
+      }
+      if (body.run) setScopingRun(body.run);
+    } catch (scopeError) {
+      setError(scopeError instanceof Error ? scopeError.message : String(scopeError));
+    } finally {
+      setScoping(false);
+    }
+  }, [owner, repo, issueNumber]);
+
   if (loading) {
     return (
       <Paper variant="outlined" sx={{ p: 2, borderColor: "divider" }}>
@@ -188,9 +258,34 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
       )}
 
       {issueType === "task" && actionableLabel && actionableLabel !== "ready" && !isRunning && (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          This task is <code>actionable:{actionableLabel}</code>. Relabel it <code>actionable:ready</code> to enable implementation.
-        </Typography>
+        <Box sx={{ mb: 1.5 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            This task is <code>actionable:{actionableLabel}</code>. Relabel it <code>actionable:ready</code> to enable implementation — or let the scoping agent decide.
+          </Typography>
+          {scopingRun && (
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+              <Chip
+                size="small"
+                variant="outlined"
+                label={scopingRun.state === "running" ? "Scoping…" : scopingRun.state === "done" ? "Scoped — actionable" : scopingRun.state === "rejected" ? "Not actionable — questions posted" : "Scoping failed"}
+                color={scopingRun.state === "done" ? "success" : scopingRun.state === "rejected" ? "warning" : scopingRun.state === "failed" ? "error" : "info"}
+              />
+              <Typography variant="caption" color="text.secondary">
+                {new Date(scopingRun.startedAt).toLocaleTimeString()}
+              </Typography>
+            </Stack>
+          )}
+          {scopingRun?.state === "running" && <LinearProgress sx={{ mb: 1 }} />}
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={scopingRun?.state === "running" ? <CircularProgress size={16} color="inherit" /> : <TravelExplore />}
+            disabled={!canScope || scoping}
+            onClick={() => void handleScope()}
+          >
+            {scopingRun?.state === "running" ? "Scoping agent running…" : scoping ? "Starting…" : "Scope"}
+          </Button>
+        </Box>
       )}
 
       {run && (

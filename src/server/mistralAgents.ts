@@ -306,6 +306,15 @@ async function activateConnector(apiKey: string, connectorId: string): Promise<v
 
 export function loadAgentPrompt(projectDir: string): string {
   const promptPath = process.env.AGENT_PROMPT_PATH || path.join(projectDir, "agent-prompt.md");
+  return loadPromptFile(promptPath);
+}
+
+export function loadScopingPrompt(projectDir: string): string {
+  const promptPath = process.env.SCOPING_PROMPT_PATH || path.join(projectDir, "scoping-prompt.md");
+  return loadPromptFile(promptPath);
+}
+
+function loadPromptFile(promptPath: string): string {
   let raw = "";
   try {
     raw = fs.readFileSync(promptPath, "utf-8");
@@ -332,9 +341,68 @@ export function agentNameForRepo(owner: string, repo: string): string {
   return `${base}--${owner}--${repo}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 }
 
+export function scopingAgentNameForRepo(owner: string, repo: string): string {
+  const base = process.env.MISTRAL_SCOPING_AGENT_NAME || "scoping-agent";
+  return `${base}--${owner}--${repo}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+}
+
 export async function findRepoAgent(apiKey: string, owner: string, repo: string): Promise<MistralAgent | null> {
   const agents = await listAgents(apiKey);
   return agents.find((agent) => agent.name === agentNameForRepo(owner, repo)) || null;
+}
+
+export async function findRepoScopingAgent(apiKey: string, owner: string, repo: string): Promise<MistralAgent | null> {
+  const agents = await listAgents(apiKey);
+  return agents.find((agent) => agent.name === scopingAgentNameForRepo(owner, repo)) || null;
+}
+
+export async function ensureRepoScopingAgent(
+  apiKey: string,
+  githubPat: string,
+  projectDir: string,
+  owner: string,
+  repo: string,
+): Promise<AgentBootstrapResult> {
+  const connectorId = await ensureGitHubConnector(apiKey, githubPat);
+  const agentName = scopingAgentNameForRepo(owner, repo);
+  console.log(`Scoping agent bootstrap for ${owner}/${repo}: using GitHub MCP connector ${connectorId}`);
+
+  const skills = await fetchRepoFile(githubPat, owner, repo, "AGENT_SKILLS.md");
+  const basePrompt = loadScopingPrompt(projectDir);
+  const instructions = skills
+    ? `${basePrompt}\n\n## Repository-specific skills\n\nThe repository ${owner}/${repo} defines extra instructions in its AGENT_SKILLS.md file. Follow them wherever they do not conflict with the rules above:\n\n${skills}`
+    : basePrompt;
+
+  const agents = await listAgents(apiKey);
+  const existing = agents.find((agent) => agent.name === agentName);
+  if (existing) {
+    console.log(`Scoping agent bootstrap for ${owner}/${repo}: found existing agent ${existing.id}`);
+  } else {
+    console.log(`Scoping agent bootstrap for ${owner}/${repo}: creating agent ${agentName}`);
+  }
+
+  const model = process.env.MISTRAL_SCOPING_MODEL || process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest";
+  const tools = [{ type: "connector", connector_id: connectorId }];
+  const payload = {
+    model,
+    name: agentName,
+    description: `Decides whether issues in ${owner}/${repo} are actionable, and labels them accordingly.`,
+    instructions,
+    tools,
+  };
+
+  if (existing) {
+    const updated = await mistralFetch<MistralAgent>(
+      apiKey,
+      `${MISTRAL_BASE_URL}/agents/${existing.id}`,
+      { method: "PATCH", body: JSON.stringify(payload) },
+      "update scoping agent",
+    );
+    return { agentId: updated.id, connectorId, agentName };
+  }
+
+  const created = await mistralFetch<MistralAgent>(apiKey, `${MISTRAL_BASE_URL}/agents`, { method: "POST", body: JSON.stringify(payload) }, "create scoping agent");
+  return { agentId: created.id, connectorId, agentName };
 }
 
 export interface AgentBootstrapResult extends AgentSetupResult {

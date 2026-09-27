@@ -12,6 +12,8 @@ interface WorkItemHierarchyProps {
   onViewItem?: (issueNumber: number) => void;
   onImplement?: (issueNumber: number) => void;
   implementingIssue?: number | null;
+  onScope?: (issueNumber: number) => void;
+  scopingIssue?: number | null;
   repo?: string;
 }
 
@@ -21,9 +23,11 @@ interface FeatureBlockProps {
   onViewItem?: (issueNumber: number) => void;
   onImplement?: (issueNumber: number) => void;
   implementingIssue?: number | null;
+  onScope?: (issueNumber: number) => void;
+  scopingIssue?: number | null;
 }
 
-function FeatureBlock({ feature, onAddTask, onViewItem, onImplement, implementingIssue }: FeatureBlockProps): React.JSX.Element {
+function FeatureBlock({ feature, onAddTask, onViewItem, onImplement, implementingIssue, onScope, scopingIssue }: FeatureBlockProps): React.JSX.Element {
   return (
     <Box sx={{ ml: 2.5, pl: 2, borderLeft: "1px solid", borderColor: "divider", py: 1 }}>
       <Stack direction="row" alignItems="center" spacing={1}>
@@ -70,6 +74,8 @@ function FeatureBlock({ feature, onAddTask, onViewItem, onImplement, implementin
             onClick={onViewItem ? () => onViewItem(task.number) : undefined}
             onImplement={onImplement}
             implementingIssue={implementingIssue}
+            onScope={onScope}
+            scopingIssue={scopingIssue}
           />
         ))}
       </Box>
@@ -85,6 +91,8 @@ export function WorkItemHierarchy({
   onViewItem,
   onImplement,
   implementingIssue,
+  onScope,
+  scopingIssue,
   repo,
 }: WorkItemHierarchyProps): React.JSX.Element {
   return (
@@ -145,6 +153,8 @@ export function WorkItemHierarchy({
               onViewItem={onViewItem}
               onImplement={onImplement}
               implementingIssue={implementingIssue}
+              onScope={onScope}
+              scopingIssue={scopingIssue}
             />
           ))}
         </Box>

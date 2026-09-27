@@ -28,7 +28,7 @@ import {
   updateIssueComment,
 } from "./github";
 import { labelColor as agentLabelColor } from "./agentLabels";
-import { MistralApiError, checkGitHubPatForMcp, ensureRepoImplementAgent, findRepoAgent, getAgentById, getConversationHistory, listModels, loadAgentPrompt, modelSupportsConnectors } from "./mistralAgents";
+import { MistralApiError, checkGitHubPatForMcp, ensureRepoImplementAgent, ensureRepoScopingAgent, findRepoAgent, findRepoScopingAgent, getAgentById, getConversationHistory, listModels, loadAgentPrompt, modelSupportsConnectors } from "./mistralAgents";
 import {
   AGENT_RUN_BUDGET_MS,
   MAX_CONCURRENT_AGENT_RUNS,
@@ -37,9 +37,16 @@ import {
   hasInProgressLabel,
   isEligibleForImplementation,
   isRunActiveForIssue,
+  listAllRuns,
   reapExpiredRuns,
   startAgentRun,
 } from "./implementAgent";
+import {
+  getLatestScopingRun,
+  isScopingRunActiveForIssue,
+  listAllScopingRuns,
+  startScopingRun,
+} from "./scopingAgent";
 
 const PORT = Number(process.env.PORT || 3000);
 const app = express();
@@ -774,7 +781,9 @@ interface AgentBootstrap {
 }
 
 const agentBootstraps = new Map<string, AgentBootstrap>();
+const scopingBootstraps = new Map<string, AgentBootstrap>();
 let modelValidated = false;
+let scopingModelValidated = false;
 
 async function getImplementAgent(token: string, owner: string, repo: string): Promise<AgentBootstrap> {
   const mistralApiKey = process.env.MISTRAL_API_KEY || "";
@@ -807,6 +816,40 @@ async function getImplementAgent(token: string, owner: string, repo: string): Pr
 
   const bootstrap = await ensureRepoImplementAgent(mistralApiKey, githubPat, projectDir, owner, repo);
   agentBootstraps.set(cacheKey, bootstrap);
+  return bootstrap;
+}
+
+async function getScopingAgent(token: string, owner: string, repo: string): Promise<AgentBootstrap> {
+  const mistralApiKey = process.env.MISTRAL_API_KEY || "";
+  if (!mistralApiKey) throw new Error("MISTRAL_API_KEY is not configured in the server environment.");
+  const githubPat = process.env.GITHUB_PAT || token;
+  if (!githubPat) throw new Error("No GitHub token available. Set GITHUB_PAT or GITHUB_TOKEN.");
+
+  const cacheKey = `${owner}/${repo}`.toLowerCase();
+  if (scopingBootstraps.has(cacheKey)) {
+    return scopingBootstraps.get(cacheKey)!;
+  }
+
+  const patCheck = await checkGitHubPatForMcp(githubPat);
+  if (!patCheck.ok) {
+    throw new Error(patCheck.message);
+  }
+  console.log(`GITHUB_PAT validated for the MCP agent (login: ${patCheck.login || "unknown"})`);
+
+  const configuredModel = process.env.MISTRAL_SCOPING_MODEL || process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest";
+  if (!scopingModelValidated) {
+    const models = await listModels(mistralApiKey);
+    const match = models.find((model) => model.id === configuredModel);
+    if (match && !modelSupportsConnectors(match)) {
+      throw new Error(
+        `MISTRAL_SCOPING_MODEL '${configuredModel}' does not support connectors (needed for the GitHub MCP tools); pick a function-calling model from GET /api/agent/models — e.g. devstral-2-latest.`,
+      );
+    }
+    scopingModelValidated = true;
+  }
+
+  const bootstrap = await ensureRepoScopingAgent(mistralApiKey, githubPat, projectDir, owner, repo);
+  scopingBootstraps.set(cacheKey, bootstrap);
   return bootstrap;
 }
 
@@ -911,6 +954,86 @@ app.get("/api/repos/:repo/issues/:issueNumber/agent-run", async (req: Request, r
   }
 });
 
+app.post("/api/repos/:repo/issues/:issueNumber/scope", async (req: Request, res: Response) => {
+  const target = resolveIssueTarget(req);
+  if ("error" in target) return res.status(400).json({ error: target.error });
+  const { owner, repo, issueNumber } = target;
+
+  const token = resolveToken(req);
+  if (!token) return res.status(401).json({ error: "No GitHub token configured." });
+
+  try {
+    const issue = await fetchIssueById(owner, repo, issueNumber, token);
+    const labels = (issue.labels || []).map((label) =>
+      typeof label === "string" ? label.toLowerCase() : (label.name || "").toLowerCase(),
+    );
+    if (!labels.includes("type:task")) {
+      return res.status(409).json({ error: "Only task issues can be scoped by the agent." });
+    }
+    const actionable = labels.find((label) => label.startsWith("actionable:"));
+    if (actionable === "actionable:ready") {
+      return res.status(409).json({ error: "Issue is already actionable:ready; no scoping needed." });
+    }
+    if (isScopingRunActiveForIssue(owner, repo, issueNumber)) {
+      return res.status(409).json({ error: "A scoping run is already in progress for this issue." });
+    }
+
+    const bootstrap = await getScopingAgent(token, owner, repo);
+    const run = await startScopingRun(
+      process.env.MISTRAL_API_KEY || "",
+      bootstrap.agentId,
+      process.env.GITHUB_PAT || token,
+      owner,
+      repo,
+      issueNumber,
+      issue.title || "",
+      issue.body || "",
+    );
+    return res.status(202).json({ run });
+  } catch (error) {
+    const githubError = error instanceof GitHubApiError ? error : null;
+    const mistralError = error instanceof MistralApiError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.error(
+      `Failed to start scoping agent run for ${owner}/${repo}#${issueNumber}:`,
+      githubError || mistralError || error,
+    );
+
+    const status = githubError?.statusCode || mistralError?.statusCode || 500;
+    const details = githubError?.details || mistralError?.details || message;
+    return res.status(status).json({
+      error: "Failed to start scoping run.",
+      details,
+    });
+  }
+});
+
+app.get("/api/repos/:repo/issues/:issueNumber/scoping-run", async (req: Request, res: Response) => {
+  const target = resolveIssueTarget(req);
+  if ("error" in target) return res.status(400).json({ error: target.error });
+  const { owner, repo, issueNumber } = target;
+
+  const run = getLatestScopingRun(owner, repo, issueNumber);
+  return res.json({ run: run || null });
+});
+
+app.get("/api/agent/runs", async (req: Request, res: Response) => {
+  reapExpiredRuns();
+  const owner = String(req.query.owner || "").trim().toLowerCase();
+  const repo = String(req.query.repo || "").trim().toLowerCase();
+
+  const scopeRuns = <T extends { owner: string; repo: string }>(runs: T[]): T[] =>
+    owner && repo ? runs.filter((run) => run.owner.toLowerCase() === owner && run.repo.toLowerCase() === repo) : runs;
+
+  return res.json({
+    implementRuns: scopeRuns(listAllRuns()),
+    scopingRuns: scopeRuns(listAllScopingRuns()),
+    concurrency: { activeRuns: activeRunCount(), maxRuns: MAX_CONCURRENT_AGENT_RUNS },
+    budgetMs: AGENT_RUN_BUDGET_MS,
+  });
+});
+
 app.post("/api/repos/:repo/issues/:issueNumber/answers", async (req: Request, res: Response) => {
   const target = resolveIssueTarget(req);
   if ("error" in target) return res.status(400).json({ error: target.error });
@@ -970,18 +1093,17 @@ app.get("/api/agent/debug", async (req: Request, res: Response) => {
   }
 
   try {
-    const agent = await findRepoAgent(mistralApiKey, owner, repo);
-    if (!agent) {
-      return res.json({
-        configuredModel: process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest",
-        agent: null,
-        message: `No agent for ${owner}/${repo} exists yet. It is created on the first Implement run for that repository.`,
-      });
-    }
-    const full = await getAgentById(mistralApiKey, agent.id);
+    const [agent, scopingAgent] = await Promise.all([
+      findRepoAgent(mistralApiKey, owner, repo),
+      findRepoScopingAgent(mistralApiKey, owner, repo),
+    ]);
+    const full = agent ? await getAgentById(mistralApiKey, agent.id) : null;
+    const fullScoping = scopingAgent ? await getAgentById(mistralApiKey, scopingAgent.id) : null;
     return res.json({
       configuredModel: process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest",
+      configuredScopingModel: process.env.MISTRAL_SCOPING_MODEL || process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest",
       agent: full,
+      scopingAgent: fullScoping,
     });
   } catch (error) {
     const mistralError = error instanceof MistralApiError ? error : null;

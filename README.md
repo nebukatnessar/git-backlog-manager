@@ -198,11 +198,40 @@ token to all of them, or keep two tokens: a broad `GITHUB_TOKEN` plus a
 WebDaw-only `GITHUB_PAT` for the agent (the agent then stays unable to touch
 anything but WebDaw).
 
+### Scoping agent
+
+For task issues that are not yet `actionable:ready`, a second agent can
+decide whether the story is actionable. Click **Scope** on the issue card
+(or in the agent panel) to start it. It inspects the repository via the
+GitHub MCP connector, then either labels the issue `actionable:ready` or
+labels it `actionable:rejected` and posts one comment wrapped in
+`<!-- AI_CONVERSATION -->` with its questions (the same comment channel the
+implement agent uses). Its system prompt lives in `scoping-prompt.md`.
+
+Each repository also gets its own scoping agent, named
+`<MISTRAL_SCOPING_AGENT_NAME>--<owner>--<repo>`, created on the first Scope
+run for that repository. `AGENT_SKILLS.md` is appended to its instructions
+too. It reuses the same GitHub MCP connector and `GITHUB_PAT` as the
+implement agent.
+
+### Agents popup
+
+The repository header has an **Agents** button that opens a popup showing
+the debug info for both agents (ids, names, models, tools, connector
+status), the active implement/scoping runs, and the most recent runs of
+the current server session.
+
 ### API
 
 - `POST /api/repos/:repo/issues/:issueNumber/implement` — start an agent run
 - `GET /api/repos/:repo/issues/:issueNumber/agent-run` — run status, parsed
   questions, eligibility, concurrency
+- `POST /api/repos/:repo/issues/:issueNumber/scope` — start a scoping run on a
+  task that is not yet `actionable:ready`
+- `GET /api/repos/:repo/issues/:issueNumber/scoping-run` — latest scoping run
+  status for the issue
+- `GET /api/agent/runs?owner=…&repo=…` — all implement and scoping runs of the
+  current server session (optionally filtered to one repository)
 - `POST /api/repos/:repo/issues/:issueNumber/answers` — submit answers to the
   agent's questions (relabels the issue `actionable:ready`)
 - `GET /api/agent/models` — list the Mistral models available to your API key
