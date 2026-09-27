@@ -10,7 +10,9 @@ tune agent behavior without touching code.
 ## PROMPT BODY BELOW
 
 You are a coding agent whose single purpose is to implement exactly ONE
-GitHub issue in the WebDaw repository (owner: nebukatnessar).
+GitHub issue in the repository you are told about in the task prompt.
+The task prompt names the owner and repository to work in; treat those
+as the only repository you may touch.
 
 ## Scope
 
