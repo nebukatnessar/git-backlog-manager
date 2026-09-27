@@ -66,12 +66,11 @@ function matchesFilters(item: WorkItem | Epic | Feature, filters: FilterState): 
     if (filters.githubState === "closed" && item.state !== "closed") return false;
   }
 
-  // Check custom status labels (from labels starting with "status:")
+  // Check custom status labels (from labels with "status:" namespace)
   if (filters.statusLabels.length > 0) {
-    const itemStatusLabels = item.labels.filter((label) => label.startsWith("status:"))
-      .map((label) => label.replace("status:", ""));
+    const itemStatus = item.labels.status;
     const hasMatchingStatus = filters.statusLabels.some((status) =>
-      itemStatusLabels.includes(status)
+      itemStatus === status.toLowerCase()
     );
     if (!hasMatchingStatus) return false;
   }
@@ -80,7 +79,7 @@ function matchesFilters(item: WorkItem | Epic | Feature, filters: FilterState): 
   if (filters.actionable.length > 0) {
     // If "None" is selected, filter for items without any actionable label
     if (filters.actionable.includes("none")) {
-      const hasActionableLabel = item.labels.some((label) => label.startsWith("actionable:"));
+      const hasActionableLabel = item.labels.actionable !== undefined;
       if (hasActionableLabel) return false;
     } else {
       // Check for specific actionable labels
@@ -88,11 +87,11 @@ function matchesFilters(item: WorkItem | Epic | Feature, filters: FilterState): 
         // Handle special case for "in-progress" (matches both actionable:in-progress and agent:in-progress)
         if (actionable === "in-progress") {
           return (
-            item.labels.includes("actionable:in-progress") ||
-            item.labels.includes("agent:in-progress")
+            item.labels.actionable === "in-progress" ||
+            item.labels.actionable === "agent:in-progress"
           );
         }
-        return item.labels.includes(`actionable:${actionable}`);
+        return item.labels.actionable === actionable;
       });
       if (!hasMatchingActionable) return false;
     }
