@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { Agent as UndiciAgent, fetch as undiciFetch } from "undici";
+import { fetchRepoFile } from "./github";
 
 const MISTRAL_BASE_URL = process.env.MISTRAL_BASE_URL || "https://api.mistral.ai/v1";
 
@@ -326,25 +327,54 @@ export async function findImplementAgent(apiKey: string): Promise<MistralAgent |
   return agents.find((agent) => agent.name === IMPLEMENT_AGENT_NAME) || null;
 }
 
-export async function ensureImplementAgent(apiKey: string, githubPat: string, projectDir: string): Promise<AgentSetupResult> {
+export function agentNameForRepo(owner: string, repo: string): string {
+  const base = process.env.MISTRAL_AGENT_NAME || "implement-agent";
+  return `${base}--${owner}--${repo}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+}
+
+export async function findRepoAgent(apiKey: string, owner: string, repo: string): Promise<MistralAgent | null> {
+  const agents = await listAgents(apiKey);
+  return agents.find((agent) => agent.name === agentNameForRepo(owner, repo)) || null;
+}
+
+export interface AgentBootstrapResult extends AgentSetupResult {
+  agentName: string;
+}
+
+export async function ensureRepoImplementAgent(
+  apiKey: string,
+  githubPat: string,
+  projectDir: string,
+  owner: string,
+  repo: string,
+): Promise<AgentBootstrapResult> {
   const connectorId = await ensureGitHubConnector(apiKey, githubPat);
-  console.log(`Implement agent bootstrap: using GitHub MCP connector ${connectorId}`);
+  const agentName = agentNameForRepo(owner, repo);
+  console.log(`Implement agent bootstrap for ${owner}/${repo}: using GitHub MCP connector ${connectorId}`);
+
+  const skills = await fetchRepoFile(githubPat, owner, repo, "AGENT_SKILLS.md");
+  const instructions = skills
+    ? `${loadAgentPrompt(projectDir)}\n\n## Repository-specific skills\n\nThe repository ${owner}/${repo} defines extra instructions in its AGENT_SKILLS.md file. Follow them wherever they do not conflict with the rules above:\n\n${skills}`
+    : loadAgentPrompt(projectDir);
+  if (skills) {
+    console.log(`Implement agent bootstrap for ${owner}/${repo}: loaded AGENT_SKILLS.md (${skills.length} chars)`);
+  }
 
   const agents = await listAgents(apiKey);
-  const existing = agents.find((agent) => agent.name === IMPLEMENT_AGENT_NAME);
+  const existing = agents.find((agent) => agent.name === agentName);
   if (existing) {
-    console.log(`Implement agent bootstrap: found existing agent ${existing.id}`);
+    console.log(`Implement agent bootstrap for ${owner}/${repo}: found existing agent ${existing.id}`);
   } else {
-    console.log(`Implement agent bootstrap: no existing agent named ${IMPLEMENT_AGENT_NAME}; creating one`);
+    console.log(`Implement agent bootstrap for ${owner}/${repo}: creating agent ${agentName}`);
   }
 
   const model = process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest";
   const tools = [{ type: "code_interpreter" }, { type: "connector", connector_id: connectorId }];
   const payload = {
     model,
-    name: IMPLEMENT_AGENT_NAME,
-    description: "Implements a single task issue and opens a draft PR, or rejects it with structured questions.",
-    instructions: loadAgentPrompt(projectDir),
+    name: agentName,
+    description: `Implements a single task issue in ${owner}/${repo} and opens a draft PR, or rejects it with structured questions.`,
+    instructions,
     tools,
   };
 
@@ -358,7 +388,7 @@ export async function ensureImplementAgent(apiKey: string, githubPat: string, pr
       },
       "update agent",
     );
-    return { agentId: updated.id, connectorId };
+    return { agentId: updated.id, connectorId, agentName };
   }
 
   const created = await mistralFetch<MistralAgent>(
@@ -370,7 +400,7 @@ export async function ensureImplementAgent(apiKey: string, githubPat: string, pr
     },
     "create agent",
   );
-  return { agentId: created.id, connectorId };
+  return { agentId: created.id, connectorId, agentName };
 }
 
 export interface ConversationOutputEntry {

@@ -91,10 +91,19 @@ questions when the story lacks information.
 The agent system prompt lives in `agent-prompt.md` and is editable without
 code changes (`AGENT_PROMPT_PATH` to override the location). The current prompt
 body is served at `GET /api/agent/prompt`. The prompt is repository-agnostic:
-the concrete `owner/repo` is injected into each run's task prompt, so the same
-agent setup works for any repository managed by the app. The Mistral agent and
-connector names are configurable via `MISTRAL_AGENT_NAME` (default
-`implement-agent`) and `MISTRAL_CONNECTOR_NAME` (default `github-mcp`).
+the concrete `owner/repo` is injected into each run's task prompt.
+
+Each repository gets its **own Mistral agent**, named
+`<MISTRAL_AGENT_NAME>--<owner>--<repo>` (e.g. `implement-agent--nebukatnessar--webdaw`),
+created on the first Implement run for that repository and reused afterwards.
+The shared GitHub MCP connector is common to all of them.
+
+Repositories can define **repo-specific agent skills**: create an
+`AGENT_SKILLS.md` file at the repository root (test commands, build tooling,
+conventions, architecture notes). On each bootstrap the backend fetches it via
+the GitHub API and appends it to the agent's instructions under a
+"Repository-specific skills" heading, so each repo's agent carries its own
+playbook. The file is optional; without it the base prompt is used as-is.
 
 ### Environment variables
 

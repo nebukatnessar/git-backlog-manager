@@ -28,7 +28,7 @@ import {
   updateIssueComment,
 } from "./github";
 import { labelColor as agentLabelColor } from "./agentLabels";
-import { IMPLEMENT_AGENT_NAME, MistralApiError, checkGitHubPatForMcp, ensureImplementAgent, findImplementAgent, getAgentById, getConversationHistory, listModels, loadAgentPrompt, modelSupportsConnectors } from "./mistralAgents";
+import { MistralApiError, checkGitHubPatForMcp, ensureRepoImplementAgent, findRepoAgent, getAgentById, getConversationHistory, listModels, loadAgentPrompt, modelSupportsConnectors } from "./mistralAgents";
 import {
   AGENT_RUN_BUDGET_MS,
   MAX_CONCURRENT_AGENT_RUNS,
@@ -773,13 +773,19 @@ interface AgentBootstrap {
   connectorId: string;
 }
 
-let agentBootstrap: AgentBootstrap | null = null;
+const agentBootstraps = new Map<string, AgentBootstrap>();
+let modelValidated = false;
 
-async function getImplementAgent(token: string): Promise<AgentBootstrap> {
+async function getImplementAgent(token: string, owner: string, repo: string): Promise<AgentBootstrap> {
   const mistralApiKey = process.env.MISTRAL_API_KEY || "";
   if (!mistralApiKey) throw new Error("MISTRAL_API_KEY is not configured in the server environment.");
   const githubPat = process.env.GITHUB_PAT || token;
   if (!githubPat) throw new Error("No GitHub token available. Set GITHUB_PAT or GITHUB_TOKEN.");
+
+  const cacheKey = `${owner}/${repo}`.toLowerCase();
+  if (agentBootstraps.has(cacheKey)) {
+    return agentBootstraps.get(cacheKey)!;
+  }
 
   const patCheck = await checkGitHubPatForMcp(githubPat);
   if (!patCheck.ok) {
@@ -788,7 +794,7 @@ async function getImplementAgent(token: string): Promise<AgentBootstrap> {
   console.log(`GITHUB_PAT validated for the MCP agent (login: ${patCheck.login || "unknown"})`);
 
   const configuredModel = process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest";
-  if (!agentBootstrap) {
+  if (!modelValidated) {
     const models = await listModels(mistralApiKey);
     const match = models.find((model) => model.id === configuredModel);
     if (match && !modelSupportsConnectors(match)) {
@@ -796,12 +802,12 @@ async function getImplementAgent(token: string): Promise<AgentBootstrap> {
         `MISTRAL_AGENT_MODEL '${configuredModel}' does not support connectors (needed for the GitHub MCP tools); pick a function-calling model from GET /api/agent/models — e.g. devstral-2-latest.`,
       );
     }
+    modelValidated = true;
   }
 
-  if (!agentBootstrap) {
-    agentBootstrap = await ensureImplementAgent(mistralApiKey, githubPat, projectDir);
-  }
-  return agentBootstrap;
+  const bootstrap = await ensureRepoImplementAgent(mistralApiKey, githubPat, projectDir, owner, repo);
+  agentBootstraps.set(cacheKey, bootstrap);
+  return bootstrap;
 }
 
 function resolveIssueTarget(req: Request): { owner: string; repo: string; issueNumber: number } | { error: string } {
@@ -839,7 +845,7 @@ app.post("/api/repos/:repo/issues/:issueNumber/implement", async (req: Request, 
       await removeIssueLabel(token, owner, repo, issueNumber, "agent:in-progress");
     }
 
-    const bootstrap = await getImplementAgent(token);
+    const bootstrap = await getImplementAgent(token, owner, repo);
     const run = await startAgentRun(process.env.MISTRAL_API_KEY || "", bootstrap.agentId, process.env.GITHUB_PAT || token, owner, repo, issueNumber);
     return res.status(202).json({ run });
   } catch (error) {
@@ -953,17 +959,23 @@ app.get("/api/agent/prompt", (_req: Request, res: Response) => {
   res.json({ prompt: loadAgentPrompt(projectDir) });
 });
 
-app.get("/api/agent/debug", async (_req: Request, res: Response) => {
+app.get("/api/agent/debug", async (req: Request, res: Response) => {
   const mistralApiKey = process.env.MISTRAL_API_KEY || "";
   if (!mistralApiKey) return res.status(400).json({ error: "MISTRAL_API_KEY is not configured in the server environment." });
 
+  const owner = String(req.query.owner || process.env.GITHUB_OWNER || "").trim().toLowerCase();
+  const repo = String(req.query.repo || "").trim().toLowerCase();
+  if (!owner || !repo) {
+    return res.status(400).json({ error: "Provide owner and repo query parameters, e.g. /api/agent/debug?owner=X&repo=Y." });
+  }
+
   try {
-    const agent = await findImplementAgent(mistralApiKey);
+    const agent = await findRepoAgent(mistralApiKey, owner, repo);
     if (!agent) {
       return res.json({
         configuredModel: process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest",
         agent: null,
-        message: `No agent named ${IMPLEMENT_AGENT_NAME} exists yet. It is created on the first Implement run.`,
+        message: `No agent for ${owner}/${repo} exists yet. It is created on the first Implement run for that repository.`,
       });
     }
     const full = await getAgentById(mistralApiKey, agent.id);

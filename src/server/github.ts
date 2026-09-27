@@ -107,6 +107,26 @@ export async function fetchPullRequestForBranch(token: string, owner: string, re
   return pulls[0] || null;
 }
 
+export async function fetchRepoFile(token: string, owner: string, repo: string, path: string): Promise<string | null> {
+  try {
+    const file = await githubFetch<{ content?: string; encoding?: string }>(
+      token,
+      `https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
+      { headers: { Accept: "application/vnd.github.raw" } },
+    );
+    if (typeof file.content === "string" && (!file.encoding || file.encoding === "base64")) {
+      if (file.encoding === "base64") {
+        return Buffer.from(file.content, "base64").toString("utf-8");
+      }
+      return file.content;
+    }
+    return typeof file.content === "string" ? file.content : null;
+  } catch (error) {
+    if (error instanceof GitHubApiError && error.statusCode === 404) return null;
+    throw error;
+  }
+}
+
 export async function ensureLabelsExist(token: string, owner: string, repo: string, labels: string[], colorFor: (name: string) => string): Promise<void> {
   const existing = new Set<string>();
   let page = 1;
