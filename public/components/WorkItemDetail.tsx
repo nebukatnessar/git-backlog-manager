@@ -1,6 +1,21 @@
 import React, { useState, useCallback, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-import { Avatar, Box, Button, Chip, CircularProgress, Divider, Paper, Stack, TextField, Typography } from "@mui/material";
+import { 
+  Avatar, 
+  Box, 
+  Button, 
+  Chip, 
+  CircularProgress, 
+  Divider, 
+  FormControl, 
+  InputLabel, 
+  MenuItem, 
+  Paper, 
+  Select, 
+  Stack, 
+  TextField, 
+  Typography 
+} from "@mui/material";
 import { ArrowBack, BugReport, Edit, FolderOpen, Save, TaskAlt } from "@mui/icons-material";
 import { type WorkItem } from "../../src/shared/workItems";
 import { AIAssistantPanel } from "./AIAssistantPanel";
@@ -42,12 +57,24 @@ function getTypeLabel(type: string | undefined): string {
   }
 }
 
+// Status and priority options as per the issue requirements
+const STATUS_OPTIONS = ["backlog", "removed", "ready-for-review", "approved", "done"] as const;
+const PRIORITY_OPTIONS = ["low", "medium", "high"] as const;
+
 interface ConversationMessage {
   role: "user" | "model";
   content: string;
 }
 
-export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics = [], allFeatures = [] }: WorkItemDetailProps): React.JSX.Element {
+export function WorkItemDetail({ 
+  workItem, 
+  owner, 
+  repo, 
+  onBack, 
+  onSave, 
+  allEpics = [], 
+  allFeatures = [] 
+}: WorkItemDetailProps): React.JSX.Element {
   const [isEditing, setIsEditing] = useState(false);
   const [editBody, setEditBody] = useState("");
   const [saving, setSaving] = useState(false);
@@ -55,6 +82,13 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   const [repositoryReadme, setRepositoryReadme] = useState("");
   const [loadingReadme, setLoadingReadme] = useState(false);
   const [conversation, setConversation] = useState<ConversationMessage[]>([]);
+  
+  // State for label dropdowns
+  const [status, setStatus] = useState<string>("");
+  const [priority, setPriority] = useState<string>("");
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [updatingPriority, setUpdatingPriority] = useState(false);
+  const [updateError, setUpdateError] = useState("");
 
   // Fetch repository README when component mounts or repo changes
   useEffect(() => {
@@ -99,6 +133,14 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
     void fetchConversation();
   }, [workItem, owner, repo]);
 
+  // Initialize status and priority from workItem labels
+  useEffect(() => {
+    if (workItem) {
+      setStatus(workItem.labels.status || "");
+      setPriority(workItem.labels.priority || "");
+    }
+  }, [workItem]);
+
   if (!workItem) {
     return (
       <Box sx={{ py: 4, textAlign: "center" }}>
@@ -108,8 +150,6 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   }
 
   const type = workItem.labels.type;
-  const status = workItem.labels.status;
-  const priority = workItem.labels.priority;
   const epicSlug = workItem.labels.epic;
   const featureSlug = workItem.labels.feature;
   const taskSlug = workItem.labels.task;
@@ -156,8 +196,6 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
       }
       
       setIsEditing(false);
-      // Refresh the work item to get the latest data
-      // This would require a prop to refetch, but for now just toggle editing
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -169,11 +207,76 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
     if (isEditing) {
       setEditBody(updatedDescription);
     } else {
-      // If not in edit mode, enter edit mode and set the description
       setIsEditing(true);
       setEditBody(updatedDescription);
     }
   }, [isEditing]);
+
+  // Handle status change
+  const handleStatusChange = useCallback(async (newStatus: string) => {
+    if (!owner || !repo || !workItem) return;
+    
+    setUpdatingStatus(true);
+    setUpdateError("");
+    
+    try {
+      // Call the new API endpoint to update the status label
+      const response = await fetch(`/api/issues/${workItem.number}/labels?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: newStatus
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update status");
+      }
+      
+      // Update local state on success
+      setStatus(newStatus);
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : String(error));
+      // Revert to previous value on error
+      setStatus(workItem.labels.status || "");
+    } finally {
+      setUpdatingStatus(false);
+    }
+  }, [owner, repo, workItem]);
+
+  // Handle priority change
+  const handlePriorityChange = useCallback(async (newPriority: string) => {
+    if (!owner || !repo || !workItem) return;
+    
+    setUpdatingPriority(true);
+    setUpdateError("");
+    
+    try {
+      // Call the new API endpoint to update the priority label
+      const response = await fetch(`/api/issues/${workItem.number}/labels?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          priority: newPriority
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update priority");
+      }
+      
+      // Update local state on success
+      setPriority(newPriority);
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : String(error));
+      // Revert to previous value on error
+      setPriority(workItem.labels.priority || "");
+    } finally {
+      setUpdatingPriority(false);
+    }
+  }, [owner, repo, workItem]);
 
   return (
     <Box>
@@ -198,34 +301,90 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
             Edit
           </Button>
         )}
-        <Chip
-          icon={getTypeIcon(type)}
-          label={getTypeLabel(type)}
-          variant="outlined"
-          sx={{ borderColor: "divider", color: "text.secondary" }}
-        />
+        <Typography variant="body2" sx={{ 
+          px: 1, 
+          py: 0.5, 
+          border: "1px solid", 
+          borderColor: "divider", 
+          borderRadius: 1,
+          color: "text.secondary"
+        }}>
+          {getTypeLabel(type)}
+        </Typography>
       </Stack>
 
       <Stack direction={{ xs: "column", lg: "row" }} spacing={3} alignItems="flex-start">
         <Paper variant="outlined" sx={{ p: 3, borderColor: "divider", flex: 1, width: "100%" }}>
           <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
-            <Avatar sx={{ width: 48, height: 48, bgcolor: type === "epic" ? "#3c3020" : type === "bug" ? "#4a1d1d" : "#1d3733", color: type === "epic" ? "secondary.main" : type === "bug" ? "error.main" : "primary.main" }}>
+            <Avatar sx={{ 
+              width: 48, 
+              height: 48, 
+              bgcolor: type === "epic" ? "#3c3020" : type === "bug" ? "#4a1d1d" : "#1d3733", 
+              color: type === "epic" ? "secondary.main" : type === "bug" ? "error.main" : "primary.main" 
+            }}>
               {getTypeIcon(type)}
             </Avatar>
             <Box>
               <Typography variant="h4" fontWeight={700}>
                 #{workItem.number} {workItem.title}
               </Typography>
-              <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
-                {type && (
-                  <Chip label={`type: ${type}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
-                )}
-                {status && (
-                  <Chip label={`status: ${status}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
-                )}
-                {priority && (
-                  <Chip label={`priority: ${priority}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
-                )}
+              <Stack direction="row" spacing={2} sx={{ mt: 1, alignItems: "center" }}>
+                {/* Status Dropdown */}
+                <FormControl size="small" sx={{ minWidth: 150 }} disabled={updatingStatus}>
+                  <InputLabel id="status-label" sx={{ color: "text.secondary" }}>Status</InputLabel>
+                  <Select
+                    labelId="status-label"
+                    value={status || ""}
+                    label="Status"
+                    onChange={(e) => void handleStatusChange(e.target.value)}
+                    disabled={updatingStatus}
+                    sx={{ 
+                      color: "text.primary", 
+                      "& .MuiSelect-select": { 
+                        py: 1 
+                      }
+                    }}
+                    endAdornment={updatingStatus ? <CircularProgress size={20} /> : null}
+                  >
+                    <MenuItem value="" disabled>
+                      <em>Select status</em>
+                    </MenuItem>
+                    {STATUS_OPTIONS.map((option) => (
+                      <MenuItem key={option} value={option}>
+                        {option}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                {/* Priority Dropdown */}
+                <FormControl size="small" sx={{ minWidth: 120 }} disabled={updatingPriority}>
+                  <InputLabel id="priority-label" sx={{ color: "text.secondary" }}>Priority</InputLabel>
+                  <Select
+                    labelId="priority-label"
+                    value={priority || ""}
+                    label="Priority"
+                    onChange={(e) => void handlePriorityChange(e.target.value)}
+                    disabled={updatingPriority}
+                    sx={{ 
+                      color: "text.primary", 
+                      "& .MuiSelect-select": { 
+                        py: 1 
+                      }
+                    }}
+                    endAdornment={updatingPriority ? <CircularProgress size={20} /> : null}
+                  >
+                    <MenuItem value="" disabled>
+                      <em>Select priority</em>
+                    </MenuItem>
+                    {PRIORITY_OPTIONS.map((option) => (
+                      <MenuItem key={option} value={option}>
+                        {option}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
                 {epicSlug && (
                   <Chip label={`epic: ${epicSlug}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
                 )}
@@ -236,6 +395,11 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
                   <Chip label={`task: ${taskSlug}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
                 )}
               </Stack>
+              {updateError && (
+                <Typography color="error" sx={{ mt: 1, fontSize: "0.75rem" }}>
+                  {updateError}
+                </Typography>
+              )}
             </Box>
           </Stack>
 
