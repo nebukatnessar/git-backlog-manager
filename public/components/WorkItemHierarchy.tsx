@@ -275,7 +275,7 @@ export function WorkItemHierarchy({
         </Box>
         <Stack direction="row" spacing={1} alignItems="center">
           <CollapseAllButton isAllCollapsed={allCollapsed} onToggle={toggleAll} />
-          <Button startIcon={<Add />} variant="outlined" onClick={onAddEpic}>
+          <Button startIcon={<Add />} variant="outlined" size="small" onClick={onAddEpic}>
             New epic
           </Button>
         </Stack>
