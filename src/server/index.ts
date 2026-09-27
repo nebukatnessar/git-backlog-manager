@@ -28,7 +28,7 @@ import {
   updateIssueComment,
 } from "./github";
 import { labelColor as agentLabelColor } from "./agentLabels";
-import { MistralApiError, checkGitHubPatForMcp, ensureImplementAgent, findImplementAgent, getAgentById, getConversationHistory, listModels, loadAgentPrompt } from "./mistralAgents";
+import { MistralApiError, checkGitHubPatForMcp, ensureImplementAgent, findImplementAgent, getAgentById, getConversationHistory, listModels, loadAgentPrompt, modelSupportsConnectors } from "./mistralAgents";
 import {
   AGENT_RUN_BUDGET_MS,
   MAX_CONCURRENT_AGENT_RUNS,
@@ -786,6 +786,17 @@ async function getImplementAgent(token: string): Promise<AgentBootstrap> {
   }
   console.log(`GITHUB_PAT validated for the MCP agent (login: ${patCheck.login || "unknown"})`);
 
+  const configuredModel = process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest";
+  if (!agentBootstrap) {
+    const models = await listModels(mistralApiKey);
+    const match = models.find((model) => model.id === configuredModel);
+    if (match && !modelSupportsConnectors(match)) {
+      throw new Error(
+        `MISTRAL_AGENT_MODEL '${configuredModel}' does not support connectors (needed for the GitHub MCP tools); pick a function-calling model from GET /api/agent/models — e.g. devstral-2-latest.`,
+      );
+    }
+  }
+
   if (!agentBootstrap) {
     agentBootstrap = await ensureImplementAgent(mistralApiKey, githubPat, projectDir);
   }
@@ -1000,10 +1011,17 @@ app.get("/api/agent/models", async (_req: Request, res: Response) => {
 
   try {
     const models = await listModels(mistralApiKey);
+    const configuredModel = process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest";
     return res.json({
-      configuredModel: process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest",
+      configuredModel,
+      configuredModelSupportsConnectors: models.filter((m) => m.id === configuredModel).some(modelSupportsConnectors),
       models: models
-        .map((model) => ({ id: model.id, name: model.name, description: model.description }))
+        .map((model) => ({
+          id: model.id,
+          name: model.name,
+          description: model.description,
+          supportsConnectors: modelSupportsConnectors(model),
+        }))
         .sort((a, b) => a.id.localeCompare(b.id)),
     });
   } catch (error) {

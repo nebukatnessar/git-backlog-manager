@@ -153,6 +153,17 @@ export interface MistralModel {
   creation_date?: string | null;
 }
 
+export function modelSupportsFunctionCalling(model: MistralModel): boolean {
+  const caps = model.capabilities as { functionCalling?: boolean; function_calling?: boolean } | undefined;
+  return Boolean(caps?.functionCalling ?? caps?.function_calling);
+}
+
+export function modelSupportsConnectors(model: MistralModel): boolean {
+  const id = model.id.toLowerCase();
+  if (id.startsWith("codestral") || id.startsWith("mistral-ocr") || id.startsWith("voxtral")) return false;
+  return modelSupportsFunctionCalling(model);
+}
+
 export async function listModels(apiKey: string): Promise<MistralModel[]> {
   const result = await mistralFetch<{ data?: MistralModel[] }>(apiKey, `${MISTRAL_BASE_URL}/models`, {}, "list models");
   return (result.data || []).map((model) => ({ ...model, capabilities: model.capabilities || {} }));
