@@ -880,7 +880,7 @@ app.get("/api/repos/:repo/issues/:issueNumber/agent-run", async (req: Request, r
     const comments = await fetchIssueComments(token, owner, repo, issueNumber);
     const questionsComment = [...comments]
       .reverse()
-      .find((comment) => comment.body.includes(AGENT_CONVERSATION_MARKER));
+      .find((comment) => parseAgentQuestions(comment.body).length > 0);
     const questions = questionsComment ? parseAgentQuestions(questionsComment.body) : [];
 
     return res.json({
@@ -922,7 +922,7 @@ app.post("/api/repos/:repo/issues/:issueNumber/answers", async (req: Request, re
     const comments = await fetchIssueComments(token, owner, repo, issueNumber);
     const questionsComment = [...comments]
       .reverse()
-      .find((comment) => comment.body.includes(AGENT_CONVERSATION_MARKER));
+      .find((comment) => parseAgentQuestions(comment.body).length > 0);
     if (!questionsComment) {
       return res.status(404).json({ error: "No agent questions comment found on this issue." });
     }

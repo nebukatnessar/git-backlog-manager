@@ -1,4 +1,5 @@
 import type { GitHubIssue } from "../shared/workItems";
+import { parseAgentQuestions } from "../shared/agentQuestions";
 import {
   AGENT_IN_PROGRESS_LABEL,
   IMPLEMENTED_LABEL,
@@ -150,7 +151,7 @@ async function checkRejection(run: AgentRun, githubPat: string): Promise<boolean
   const comments = await fetchIssueComments(githubPat, run.owner, run.repo, run.issueNumber);
   const rejectionComment = [...comments]
     .reverse()
-    .find((comment) => comment.body.includes("<!-- AI_CONVERSATION -->"));
+    .find((comment) => parseAgentQuestions(comment.body).length > 0);
 
   if (!rejectionComment) return false;
 
