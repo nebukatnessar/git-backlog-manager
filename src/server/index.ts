@@ -1,57 +1,100 @@
-// Update workitem label endpoint
-app.post("/api/repos/:repo/issues/:issueNumber/label/:label", async (req: Request, res: Response) => {
-  const owner = String(req.query.owner || process.env.GITHUB_OWNER || "").trim();
-  const repo = String(req.params.repo).trim();
-  const issueNumber = Number(req.params.issueNumber);
-  const label = String(req.params.label).trim();
+import express, { type Request, type Response } from "express";
+import path from "node:path";
+import dotenv from "dotenv";
 
-  if (!owner || !repo || !isValidRepoPart(owner) || !isValidRepoPart(repo)) {
-    return res.status(400).json({ error: "Provide valid owner and repo parameters." });
-  }
-  if (!issueNumber || issueNumber <= 0) {
-    return res.status(400).json({ error: "Provide a valid issue number." });
-  }
-  if (!label) {
-    return res.status(400).json({ error: "Provide a valid label." });
-  }
+// Load .env from the project root directory, not the current working directory
+const projectDir = path.resolve(__dirname, "../../");
+dotenv.config({ path: path.join(projectDir, ".env") });
+import {
+  buildCreateLabels,
+  buildWorkItemHierarchy,
+  existingSlugsFor,
+  uniqueSlug,
+  validateCreateWorkItem,
+  type GitHubIssue,
+} from "../shared/workItems";
+import {
+  AGENT_CONVERSATION_MARKER,
+  buildAgentQuestionsComment,
+  parseAgentQuestions,
+  withAgentAnswers,
+  type AgentQuestion,
+} from "../shared/agentQuestions";
+import {
+  addIssueLabels,
+  ensureLabelsExist as ensureGitHubLabelsExist,
+  fetchIssueComments,
+  removeIssueLabel,
+  updateIssueComment,
+} from "./github";
+import { labelColor as agentLabelColor } from "./agentLabels";
+import { MistralApiError, checkGitHubPatForMcp, ensureRepoImplementAgent, ensureRepoScopingAgent, findRepoAgent, findRepoScopingAgent, getAgentById, getConversationHistory, listModels, loadAgentPrompt, modelSupportsConnectors } from "./mistralAgents";
+import {
+  AGENT_RUN_BUDGET_MS,
+  MAX_CONCURRENT_AGENT_RUNS,
+  activeRunCount,
+  getLatestRun,
+  hasInProgressLabel,
+  isEligibleForImplementation,
+  isRunActiveForIssue,
+  listAllRuns,
+  reapExpiredRuns,
+  startAgentRun,
+} from "./implementAgent";
+import {
+  getLatestScopingRun,
+  isScopingRunActiveForIssue,
+  listAllScopingRuns,
+  startScopingRun,
+} from "./scopingAgent";
 
-  const token = resolveToken(req);
-  if (!token) {
-    return res.status(401).json({ error: "No GitHub token configured." });
-  }
+const PORT = Number(process.env.PORT || 3000);
+const app = express();
+app.use(express.json());
 
-  try {
-    // Check if the label is namespaced (contains a colon)
-    if (label.includes(':')) {
-      const namespace = label.split(':')[0];
-      
-      // Remove all existing labels with the same namespace
-      // We need to fetch the current labels first to find matching ones
-      const issue = await fetchIssueById(owner, repo, issueNumber, token);
-      const currentLabels = issue.labels || [];
-      
-      // Normalize labels to strings
-      const labelNames = currentLabels.map(l => typeof l === 'string' ? l : l.name || '');
-      
-      // Find and remove all labels with the same namespace
-      for (const existingLabel of labelNames) {
-        if (existingLabel.startsWith(`${namespace}:`)) {
-          await removeIssueLabel(token, owner, repo, issueNumber, existingLabel);
-        }
-      }
-    }
-    
-    // Add the new label
-    await addIssueLabels(token, owner, repo, issueNumber, [label]);
-    
-    // Return 204 No Content on success
-    return res.status(204).end();
-  } catch (error) {
-    const apiError = error instanceof GitHubApiError ? error : null;
-    const message = error instanceof Error ? error.message : String(error);
-    return res.status(apiError?.statusCode || 500).json({
-      error: "Failed to update label on GitHub.",
-      details: apiError?.details || message,
-    });
+class GitHubApiError extends Error {
+  constructor(public statusCode: number, public details: string) {
+    super("GitHub API request failed");
   }
-});
+}
+
+interface GitHubRepository {
+  id: number;
+  name: string;
+  full_name: string;
+  description: string | null;
+  private: boolean;
+  stargazers_count: number;
+  open_issues_count: number;
+  updated_at: string;
+}
+
+function isValidRepoPart(value: string): boolean {
+  return /^[A-Za-z0-9_.-]+$/.test(value);
+}
+
+function resolveToken(req: Request): string {
+  const authHeader = req.get("authorization") || "";
+  const headerToken = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
+  return headerToken || process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || "";
+}
+
+function resolveAgentToken(fallback: string): string {
+  return process.env.AGENT_GITHUB_TOKEN || fallback;
+}
+
+function githubHeaders(token: string, jsonBody = false): Record<string, string> {
+  return {
+    Accept: "application/vnd.github+json",
+    Authorization: `Bearer ${token}`,
+    "User-Agent": "git-backlog-manager",
+    ...(jsonBody ? { "Content-Type": "application/json" } : {}),
+  };
+}
+
+function labelColor(name: string): string {
+  if (name.startsWith("type:")) return "62d9b2";
+  if (name.startsWith("status:")) return "f2b56b";
+  if (name.startsWith("priority:")) return "e98282";
+  return "6e7681";
+}
