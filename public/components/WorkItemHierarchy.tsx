@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Avatar, Box, Button, Chip, Paper, Stack, Tooltip, Typography } from "@mui/material";
 import { Add, ChevronRight, ExpandMore, ExpandLess, FolderOpen } from "@mui/icons-material";
 import { type Epic, type Feature } from "../../src/shared/workItems";
@@ -228,6 +228,22 @@ export function WorkItemHierarchy({
 }: WorkItemHierarchyProps): React.JSX.Element {
   const [expandedEpics, setExpandedEpics] = useState<Record<string, boolean>>({});
   const [expandedFeatures, setExpandedFeatures] = useState<Record<string, boolean>>({});
+
+  // Initialize all epics and features as expanded
+  useEffect(() => {
+    if (epics.length > 0) {
+      const initialExpandedEpics: Record<string, boolean> = {};
+      const initialExpandedFeatures: Record<string, boolean> = {};
+      epics.forEach((epic) => {
+        initialExpandedEpics[epic.slug] = true;
+        epic.features.forEach((feature) => {
+          initialExpandedFeatures[`${epic.slug}/${feature.slug}`] = true;
+        });
+      });
+      setExpandedEpics(initialExpandedEpics);
+      setExpandedFeatures(initialExpandedFeatures);
+    }
+  }, [epics]);
 
   const toggleEpic = (epicSlug: string) => {
     setExpandedEpics((prev) => ({
