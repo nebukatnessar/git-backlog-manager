@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Box, Button, CircularProgress, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import { SmartToy } from "@mui/icons-material";
 import { type WorkItem, type Epic, type Feature } from "../../src/shared/workItems";
 import { MetricsBar } from "./MetricsBar";
@@ -7,6 +7,7 @@ import { WorkItemHierarchy } from "./WorkItemHierarchy";
 import { BugsPanel } from "./BugsPanel";
 import { WorkItemDetail } from "./WorkItemDetail";
 import { AgentsPopup } from "./AgentsPopup";
+import { FilterDialog } from "./FilterDialog";
 
 interface RepositoryDetails {
   name: string;
@@ -50,6 +51,13 @@ interface RepositoryContentProps {
   scopingIssue?: number | null;
 }
 
+// Define types for the filter state
+interface FilterState {
+  githubState: "open" | "closed" | "all";
+  statusLabels: string[];
+  actionable: string[];
+}
+
 export function RepositoryContent({
   owner,
   selectedRepo,
@@ -74,6 +82,19 @@ export function RepositoryContent({
   scopingIssue,
 }: RepositoryContentProps): React.JSX.Element {
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const [filters, setFilters] = useState<FilterState>({
+    githubState: state as "open" | "closed" | "all",
+    statusLabels: [],
+    actionable: [],
+  });
+
+  // Handle filter changes from FilterDialog
+  const handleApplyFilters = (newFilters: FilterState) => {
+    setFilters(newFilters);
+    // Map githubState to the existing state prop for backward compatibility
+    onStateChange(newFilters.githubState);
+  };
+
   // If we're viewing a specific work item detail
   if (workItemId !== undefined && onBackFromDetail) {
     return (
@@ -93,19 +114,7 @@ export function RepositoryContent({
               {selectedDetails?.description || "GitHub work items"}
             </Typography>
           </Box>
-          <TextField
-            select
-            SelectProps={{ native: true }}
-            size="small"
-            label="Issue state"
-            value={state}
-            onChange={(event) => onStateChange(event.target.value)}
-            sx={{ minWidth: 140 }}
-          >
-            <option value="all">All issues</option>
-            <option value="open">Open</option>
-            <option value="closed">Closed</option>
-          </TextField>
+          <FilterDialog owner={owner} repo={selectedRepo} onApplyFilters={handleApplyFilters} />
         </Stack>
         {loadingWorkItem ? (
           <Box sx={{ py: 10, textAlign: "center" }}>
@@ -154,19 +163,7 @@ export function RepositoryContent({
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} alignItems="center">
-          <TextField
-            select
-            SelectProps={{ native: true }}
-            size="small"
-            label="Issue state"
-            value={state}
-            onChange={(event) => onStateChange(event.target.value)}
-            sx={{ minWidth: 140 }}
-          >
-            <option value="all">All issues</option>
-            <option value="open">Open</option>
-            <option value="closed">Closed</option>
-          </TextField>
+          <FilterDialog owner={owner} repo={selectedRepo} onApplyFilters={handleApplyFilters} />
           <Button
             variant="outlined"
             startIcon={<SmartToy />}
