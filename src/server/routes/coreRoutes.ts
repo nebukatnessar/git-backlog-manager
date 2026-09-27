@@ -310,7 +310,9 @@ export function registerCoreRoutes(app: Express): void {
         const namespace = label.split(":")[0];
         // Fetch the issue to get its current labels
         const issue = await fetchIssue(token, owner, repo, issueNumber);
-        const existingLabels = issue.labels || [];
+        const existingLabels = (issue.labels || []).map((existingLabel) =>
+          typeof existingLabel === "string" ? existingLabel : existingLabel.name || "",
+        );
 
         // Remove all existing labels with the same namespace
         for (const existingLabel of existingLabels) {

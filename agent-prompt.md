@@ -43,6 +43,8 @@ That is a different skill. Rules:
   file, function, or class to change part of it.
 - Match the file's existing style: naming, quotes, async patterns, error  
   handling. Copy how neighboring code does things.
+- Be carefull not to make the files to large, include what you can / put implementation in other files
+- The max size to aim for is 900 lines
 - Node/TypeScript specifics:
   - Check what module system the file uses (CommonJS `require` vs ESM  
     `import`) and use the same one.
