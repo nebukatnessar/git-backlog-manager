@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Avatar, Box, Button, Chip, Paper, Stack, Tooltip, Typography } from "@mui/material";
-import { Add, ChevronRight, ExpandMore, FolderOpen } from "@mui/icons-material";
+import { Add, ChevronRight, ExpandMore, ExpandLess, FolderOpen } from "@mui/icons-material";
 import { type Epic, type Feature } from "../../src/shared/workItems";
 import { IssueLink } from "./IssueLink";
 
@@ -112,18 +112,11 @@ interface EpicBlockProps {
   implementingIssue?: number | null;
   onScope?: (issueNumber: number) => void;
   scopingIssue?: number | null;
+  expandedFeatures: Record<string, boolean>;
+  onFeatureToggle: (featureSlug: string) => void;
 }
 
-function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onToggle, onImplement, implementingIssue, onScope, scopingIssue }: EpicBlockProps): React.JSX.Element {
-  const [expandedFeatures, setExpandedFeatures] = useState<Record<string, boolean>>({});
-
-  const toggleFeature = (featureSlug: string) => {
-    setExpandedFeatures((prev) => ({
-      ...prev,
-      [featureSlug]: !prev[featureSlug],
-    }));
-  };
-
+function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onToggle, onImplement, implementingIssue, onScope, scopingIssue, expandedFeatures, onFeatureToggle }: EpicBlockProps): React.JSX.Element {
   return (
     <Box key={epic.number} sx={{ py: 1.5, borderTop: "1px solid", borderColor: "divider" }}>
       <Stack direction="row" spacing={1.5} alignItems="center">
@@ -185,8 +178,8 @@ function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onTo
               feature={feature}
               onAddTask={() => onAddTask(epic.slug, feature.slug)}
               onViewItem={onViewItem}
-              isExpanded={expandedFeatures[feature.slug] !== false}
-              onToggle={() => toggleFeature(feature.slug)}
+              isExpanded={expandedFeatures[`${epic.slug}/${feature.slug}`] === true}
+              onToggle={() => onFeatureToggle(feature.slug)}
               indentLevel={2.5}
               onImplement={onImplement}
               implementingIssue={implementingIssue}
@@ -197,6 +190,27 @@ function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onTo
         </>
       )}
     </Box>
+  );
+}
+
+interface CollapseAllButtonProps {
+  isAllCollapsed: boolean;
+  onToggle: () => void;
+}
+
+function CollapseAllButton({ isAllCollapsed, onToggle }: CollapseAllButtonProps): React.JSX.Element {
+  return (
+    <Tooltip title={isAllCollapsed ? "Expand All" : "Collapse All"}>
+      <Button
+        startIcon={isAllCollapsed ? <ExpandMore /> : <ExpandLess />}
+        variant="outlined"
+        size="small"
+        onClick={onToggle}
+        sx={{ textTransform: "none" }}
+      >
+        {isAllCollapsed ? "Expand All" : "Collapse All"}
+      </Button>
+    </Tooltip>
   );
 }
 
@@ -213,6 +227,7 @@ export function WorkItemHierarchy({
   repo,
 }: WorkItemHierarchyProps): React.JSX.Element {
   const [expandedEpics, setExpandedEpics] = useState<Record<string, boolean>>({});
+  const [expandedFeatures, setExpandedFeatures] = useState<Record<string, boolean>>({});
 
   const toggleEpic = (epicSlug: string) => {
     setExpandedEpics((prev) => ({
@@ -221,6 +236,36 @@ export function WorkItemHierarchy({
     }));
   };
 
+  const toggleFeature = (epicSlug: string, featureSlug: string) => {
+    setExpandedFeatures((prev) => ({
+      ...prev,
+      [`${epicSlug}/${featureSlug}`]: !prev[`${epicSlug}/${featureSlug}`],
+    }));
+  };
+
+  const toggleAll = () => {
+    const allEpicsCollapsed = Object.values(expandedEpics).every((expanded) => !expanded);
+    if (allEpicsCollapsed) {
+      // Expand all epics and features
+      const newExpandedEpics: Record<string, boolean> = {};
+      const newExpandedFeatures: Record<string, boolean> = {};
+      epics.forEach((epic) => {
+        newExpandedEpics[epic.slug] = true;
+        epic.features.forEach((feature) => {
+          newExpandedFeatures[`${epic.slug}/${feature.slug}`] = true;
+        });
+      });
+      setExpandedEpics(newExpandedEpics);
+      setExpandedFeatures(newExpandedFeatures);
+    } else {
+      // Collapse all epics and features
+      setExpandedEpics({});
+      setExpandedFeatures({});
+    }
+  };
+
+  const allCollapsed = Object.values(expandedEpics).every((expanded) => !expanded);
+
   return (
     <Paper variant="outlined" sx={{ p: { xs: 2, md: 3 }, flex: 1, width: "100%", borderColor: "divider" }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
@@ -228,9 +273,12 @@ export function WorkItemHierarchy({
           <Typography variant="h6">Work item hierarchy</Typography>
           <Typography variant="body2" color="text.secondary">Epics, features, and tasks</Typography>
         </Box>
-        <Button startIcon={<Add />} variant="outlined" onClick={onAddEpic}>
-          New epic
-        </Button>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <CollapseAllButton isAllCollapsed={allCollapsed} onToggle={toggleAll} />
+          <Button startIcon={<Add />} variant="outlined" onClick={onAddEpic}>
+            New epic
+          </Button>
+        </Stack>
       </Stack>
       {epics.map((epic) => (
         <EpicBlock
@@ -239,12 +287,14 @@ export function WorkItemHierarchy({
           onAddFeature={onAddFeature}
           onAddTask={onAddTask}
           onViewItem={onViewItem}
-          isExpanded={expandedEpics[epic.slug] !== false}
+          isExpanded={expandedEpics[epic.slug] === true}
           onToggle={() => toggleEpic(epic.slug)}
           onImplement={onImplement}
           implementingIssue={implementingIssue}
           onScope={onScope}
           scopingIssue={scopingIssue}
+          expandedFeatures={expandedFeatures}
+          onFeatureToggle={(featureSlug: string) => toggleFeature(epic.slug, featureSlug)}
         />
       ))}
       {!epics.length && (
