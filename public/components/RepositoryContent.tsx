@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Box, Button, CircularProgress, Stack, TextField, Typography } from "@mui/material";
+import React, { useState, useMemo } from "react";
+import { Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import { SmartToy } from "@mui/icons-material";
 import { type WorkItem, type Epic, type Feature } from "../../src/shared/workItems";
 import { MetricsBar } from "./MetricsBar";
@@ -7,6 +7,7 @@ import { WorkItemHierarchy } from "./WorkItemHierarchy";
 import { BugsPanel } from "./BugsPanel";
 import { WorkItemDetail } from "./WorkItemDetail";
 import { AgentsPopup } from "./AgentsPopup";
+import { FilterDialog } from "./FilterDialog";
 
 interface RepositoryDetails {
   name: string;
@@ -50,6 +51,78 @@ interface RepositoryContentProps {
   scopingIssue?: number | null;
 }
 
+// Define types for the filter state
+interface FilterState {
+  githubState: "open" | "closed" | "all";
+  statusLabels: string[];
+  actionable: string[];
+}
+
+// Helper function to check if a work item matches the filters
+function matchesFilters(item: WorkItem | Epic | Feature, filters: FilterState): boolean {
+  // Check GitHub state
+  if (filters.githubState !== "all") {
+    if (filters.githubState === "open" && item.state !== "open") return false;
+    if (filters.githubState === "closed" && item.state !== "closed") return false;
+  }
+
+  // Check custom status labels (from labels with "status:" namespace)
+  if (filters.statusLabels.length > 0) {
+    const itemStatus = item.labels.status;
+    const hasMatchingStatus = filters.statusLabels.some((status) =>
+      itemStatus === status.toLowerCase()
+    );
+    if (!hasMatchingStatus) return false;
+  }
+
+  // Check actionable labels
+  if (filters.actionable.length > 0) {
+    // If "None" is selected, filter for items without any actionable label
+    if (filters.actionable.includes("none")) {
+      const hasActionableLabel = item.labels.actionable !== undefined;
+      if (hasActionableLabel) return false;
+    } else {
+      // Check for specific actionable labels
+      const hasMatchingActionable = filters.actionable.some((actionable) => {
+        // Handle special case for "in-progress" (matches both actionable:in-progress and agent:in-progress)
+        if (actionable === "in-progress") {
+          return (
+            item.labels.actionable === "in-progress" ||
+            item.labels.actionable === "agent:in-progress"
+          );
+        }
+        return item.labels.actionable === actionable;
+      });
+      if (!hasMatchingActionable) return false;
+    }
+  }
+
+  return true;
+}
+
+// Helper function to filter a feature's tasks
+function filterFeatureTasks(feature: Feature, filters: FilterState): Feature {
+  return {
+    ...feature,
+    tasks: feature.tasks.filter((task) => matchesFilters(task, filters)),
+  };
+}
+
+// Helper function to filter an epic's features and their tasks
+function filterEpicFeatures(epic: Epic, filters: FilterState): Epic {
+  return {
+    ...epic,
+    features: epic.features
+      .map((feature) => filterFeatureTasks(feature, filters))
+      .filter((feature) => {
+        // Keep feature if it matches filters or has tasks that match
+        const featureMatches = matchesFilters(feature, filters);
+        const hasMatchingTasks = feature.tasks.length > 0;
+        return featureMatches || hasMatchingTasks;
+      }),
+  };
+}
+
 export function RepositoryContent({
   owner,
   selectedRepo,
@@ -74,6 +147,39 @@ export function RepositoryContent({
   scopingIssue,
 }: RepositoryContentProps): React.JSX.Element {
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const [filters, setFilters] = useState<FilterState>({
+    githubState: state as "open" | "closed" | "all",
+    statusLabels: [],
+    actionable: [],
+  });
+
+  // Handle filter changes from FilterDialog
+  const handleApplyFilters = (newFilters: FilterState) => {
+    setFilters(newFilters);
+    // Map githubState to the existing state prop for backward compatibility
+    onStateChange(newFilters.githubState);
+  };
+
+  // Filter the epics, features, and tasks based on the current filters
+  const filteredData = useMemo(() => {
+    if (!data) return null;
+
+    return {
+      ...data,
+      hierarchy: {
+        ...data.hierarchy,
+        epics: data.hierarchy.epics
+          .map((epic) => filterEpicFeatures(epic, filters))
+          .filter((epic) => {
+            // Keep epic if it matches filters or has features/tasks that match
+            const epicMatches = matchesFilters(epic, filters);
+            const hasMatchingFeatures = epic.features.length > 0;
+            return epicMatches || hasMatchingFeatures;
+          }),
+      },
+    };
+  }, [data, filters]);
+
   // If we're viewing a specific work item detail
   if (workItemId !== undefined && onBackFromDetail) {
     return (
@@ -93,19 +199,7 @@ export function RepositoryContent({
               {selectedDetails?.description || "GitHub work items"}
             </Typography>
           </Box>
-          <TextField
-            select
-            SelectProps={{ native: true }}
-            size="small"
-            label="Issue state"
-            value={state}
-            onChange={(event) => onStateChange(event.target.value)}
-            sx={{ minWidth: 140 }}
-          >
-            <option value="all">All issues</option>
-            <option value="open">Open</option>
-            <option value="closed">Closed</option>
-          </TextField>
+          <FilterDialog owner={owner} repo={selectedRepo} onApplyFilters={handleApplyFilters} />
         </Stack>
         {loadingWorkItem ? (
           <Box sx={{ py: 10, textAlign: "center" }}>
@@ -154,19 +248,7 @@ export function RepositoryContent({
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} alignItems="center">
-          <TextField
-            select
-            SelectProps={{ native: true }}
-            size="small"
-            label="Issue state"
-            value={state}
-            onChange={(event) => onStateChange(event.target.value)}
-            sx={{ minWidth: 140 }}
-          >
-            <option value="all">All issues</option>
-            <option value="open">Open</option>
-            <option value="closed">Closed</option>
-          </TextField>
+          <FilterDialog owner={owner} repo={selectedRepo} onApplyFilters={handleApplyFilters} />
           <Button
             variant="outlined"
             startIcon={<SmartToy />}
@@ -182,12 +264,12 @@ export function RepositoryContent({
         <Box sx={{ py: 10, textAlign: "center" }}>
           <CircularProgress color="primary" />
         </Box>
-      ) : data ? (
+      ) : filteredData ? (
         <>
-          <MetricsBar issues={data.totals.issues} epics={data.totals.epics} bugs={data.totals.bugs} />
+          <MetricsBar issues={filteredData.totals.issues} epics={filteredData.totals.epics} bugs={filteredData.totals.bugs} />
           <Stack direction={{ xs: "column", lg: "row" }} spacing={3} alignItems="flex-start">
             <WorkItemHierarchy
-              epics={data.hierarchy.epics}
+              epics={filteredData.hierarchy.epics}
               onAddEpic={onAddEpic}
               onAddFeature={onAddFeature}
               onAddTask={onAddTask}
@@ -198,7 +280,7 @@ export function RepositoryContent({
               scopingIssue={scopingIssue}
               repo={selectedRepo}
             />
-            <BugsPanel bugs={data.hierarchy.bugs} onViewItem={onViewItem} />
+            <BugsPanel bugs={filteredData.hierarchy.bugs} onViewItem={onViewItem} />
           </Stack>
         </>
       ) : null}
