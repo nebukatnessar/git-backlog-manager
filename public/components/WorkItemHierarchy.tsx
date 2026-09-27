@@ -112,18 +112,11 @@ interface EpicBlockProps {
   implementingIssue?: number | null;
   onScope?: (issueNumber: number) => void;
   scopingIssue?: number | null;
+  expandedFeatures: Record<string, boolean>;
+  onFeatureToggle: (featureSlug: string) => void;
 }
 
-function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onToggle, onImplement, implementingIssue, onScope, scopingIssue }: EpicBlockProps): React.JSX.Element {
-  const [expandedFeatures, setExpandedFeatures] = useState<Record<string, boolean>>({});
-
-  const toggleFeature = (featureSlug: string) => {
-    setExpandedFeatures((prev) => ({
-      ...prev,
-      [featureSlug]: !prev[featureSlug],
-    }));
-  };
-
+function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onToggle, onImplement, implementingIssue, onScope, scopingIssue, expandedFeatures, onFeatureToggle }: EpicBlockProps): React.JSX.Element {
   return (
     <Box key={epic.number} sx={{ py: 1.5, borderTop: "1px solid", borderColor: "divider" }}>
       <Stack direction="row" spacing={1.5} alignItems="center">
@@ -185,8 +178,8 @@ function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onTo
               feature={feature}
               onAddTask={() => onAddTask(epic.slug, feature.slug)}
               onViewItem={onViewItem}
-              isExpanded={expandedFeatures[feature.slug] !== false}
-              onToggle={() => toggleFeature(feature.slug)}
+              isExpanded={expandedFeatures[`${epic.slug}/${feature.slug}`] === true}
+              onToggle={() => onFeatureToggle(feature.slug)}
               indentLevel={2.5}
               onImplement={onImplement}
               implementingIssue={implementingIssue}
@@ -243,6 +236,13 @@ export function WorkItemHierarchy({
     }));
   };
 
+  const toggleFeature = (epicSlug: string, featureSlug: string) => {
+    setExpandedFeatures((prev) => ({
+      ...prev,
+      [`${epicSlug}/${featureSlug}`]: !prev[`${epicSlug}/${featureSlug}`],
+    }));
+  };
+
   const toggleAll = () => {
     const allEpicsCollapsed = Object.values(expandedEpics).every((expanded) => !expanded);
     if (allEpicsCollapsed) {
@@ -293,6 +293,8 @@ export function WorkItemHierarchy({
           implementingIssue={implementingIssue}
           onScope={onScope}
           scopingIssue={scopingIssue}
+          expandedFeatures={expandedFeatures}
+          onFeatureToggle={(featureSlug: string) => toggleFeature(epic.slug, featureSlug)}
         />
       ))}
       {!epics.length && (
