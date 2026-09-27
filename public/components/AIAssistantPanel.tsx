@@ -163,9 +163,7 @@ export function AIAssistantPanel({
           </Typography>
         ) : (
           messages.map((m, idx) => {
-            const proposedUpdate = m.role === "model" ? extractUpdatedDescription(m.content) : null;
             const displayText = m.content.replace(/```work_item_update[\s\S]*?```/g, "").trim();
-            const suggestions = m.role === "model" ? extractSuggestions(m.content) : [];
 
             return (
               <Stack
@@ -212,25 +210,23 @@ export function AIAssistantPanel({
                     <Typography sx={{ whiteSpace: "pre-wrap" }}>{displayText}</Typography>
                   )}
                 </Box>
-
-                {/* Apply Suggestion Button */}
-                {proposedUpdate && (
-                  <Button
-                    size="small"
-                    variant="contained"
-                    onClick={() => onApplySuggestion(proposedUpdate)}
-                    sx={{ alignSelf: "flex-start" }}
-                  >
-                    Apply to description
-                  </Button>
-                )}
-
-             
               </Stack>
             );
           })
         )}
       </Box>
+
+      {/* Single Apply Button - appears only when latest model message has a suggestion */}
+      {hasSuggestion() && (
+        <Button
+          size="small"
+          variant="contained"
+          onClick={handleApplyLastSuggestion}
+          sx={{ mb: 1, alignSelf: "flex-start" }}
+        >
+          Apply latest suggestion to description
+        </Button>
+      )}
 
       <Divider sx={{ my: 1, borderColor: "divider" }} />
 

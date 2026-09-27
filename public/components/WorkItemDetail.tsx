@@ -4,6 +4,7 @@ import { Avatar, Box, Button, Chip, CircularProgress, Divider, Paper, Stack, Tex
 import { ArrowBack, BugReport, Edit, FolderOpen, Save, TaskAlt } from "@mui/icons-material";
 import { type WorkItem } from "../../src/shared/workItems";
 import { AIAssistantPanel } from "./AIAssistantPanel";
+import { AgentRunPanel } from "./AgentRunPanel";
 
 interface WorkItemDetailProps {
   workItem: WorkItem | null;
@@ -321,7 +322,17 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
 
         {/* AI Assistant Panel - on the right side */}
         <Box sx={{ width: { lg: 360 }, flexShrink: 0 }}>
-          <AIAssistantPanel
+          <Stack spacing={2}>
+            {type === "task" && (
+              <AgentRunPanel
+                owner={owner}
+                repo={repo}
+                issueNumber={workItem.number}
+                issueType={type}
+                actionableLabel={workItem.labels.actionable}
+              />
+            )}
+            <AIAssistantPanel
             key={`ai-assistant-${workItem.number}`}
             description={isEditing ? editBody : (workItem.body || "")}
             additionalContext={{
@@ -334,6 +345,7 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
             conversation={conversation}
             onConversationChange={setConversation}
           />
+          </Stack>
         </Box>
       </Stack>
     </Box>

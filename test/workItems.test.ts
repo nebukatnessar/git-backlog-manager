@@ -61,6 +61,7 @@ test("validateCreateWorkItem requires parents for nested types", () => {
       "type:task",
       "status:backlog",
       "priority:high",
+      "actionable:needs-scoping",
       "epic:core-audio",
       "feature:wav-import",
       "task:decode-headers",

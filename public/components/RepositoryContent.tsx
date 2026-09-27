@@ -1,10 +1,12 @@
-import React from "react";
-import { Box, CircularProgress, Stack, TextField, Typography } from "@mui/material";
+import React, { useState } from "react";
+import { Box, Button, CircularProgress, Stack, TextField, Typography } from "@mui/material";
+import { SmartToy } from "@mui/icons-material";
 import { type WorkItem, type Epic, type Feature } from "../../src/shared/workItems";
 import { MetricsBar } from "./MetricsBar";
 import { WorkItemHierarchy } from "./WorkItemHierarchy";
 import { BugsPanel } from "./BugsPanel";
 import { WorkItemDetail } from "./WorkItemDetail";
+import { AgentsPopup } from "./AgentsPopup";
 
 interface RepositoryDetails {
   name: string;
@@ -42,6 +44,10 @@ interface RepositoryContentProps {
   onViewItem?: (issueNumber: number) => void;
   onBackFromDetail?: () => void;
   onSaveWorkItem?: (issueNumber: number, body: string) => Promise<void>;
+  onImplement?: (issueNumber: number) => void;
+  implementingIssue?: number | null;
+  onScope?: (issueNumber: number) => void;
+  scopingIssue?: number | null;
 }
 
 export function RepositoryContent({
@@ -62,7 +68,12 @@ export function RepositoryContent({
   onViewItem,
   onBackFromDetail,
   onSaveWorkItem,
+  onImplement,
+  implementingIssue,
+  onScope,
+  scopingIssue,
 }: RepositoryContentProps): React.JSX.Element {
+  const [agentsOpen, setAgentsOpen] = useState(false);
   // If we're viewing a specific work item detail
   if (workItemId !== undefined && onBackFromDetail) {
     return (
@@ -142,20 +153,30 @@ export function RepositoryContent({
             {selectedDetails?.description || "GitHub work items"}
           </Typography>
         </Box>
-        <TextField
-          select
-          SelectProps={{ native: true }}
-          size="small"
-          label="Issue state"
-          value={state}
-          onChange={(event) => onStateChange(event.target.value)}
-          sx={{ minWidth: 140 }}
-        >
-          <option value="all">All issues</option>
-          <option value="open">Open</option>
-          <option value="closed">Closed</option>
-        </TextField>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <TextField
+            select
+            SelectProps={{ native: true }}
+            size="small"
+            label="Issue state"
+            value={state}
+            onChange={(event) => onStateChange(event.target.value)}
+            sx={{ minWidth: 140 }}
+          >
+            <option value="all">All issues</option>
+            <option value="open">Open</option>
+            <option value="closed">Closed</option>
+          </TextField>
+          <Button
+            variant="outlined"
+            startIcon={<SmartToy />}
+            onClick={() => setAgentsOpen(true)}
+          >
+            Agents
+          </Button>
+        </Stack>
       </Stack>
+      <AgentsPopup open={agentsOpen} owner={owner} repo={selectedRepo} onClose={() => setAgentsOpen(false)} />
       {error && <Typography color="error" sx={{ mb: 3 }}>{error}</Typography>}
       {loadingIssues ? (
         <Box sx={{ py: 10, textAlign: "center" }}>
@@ -171,6 +192,10 @@ export function RepositoryContent({
               onAddFeature={onAddFeature}
               onAddTask={onAddTask}
               onViewItem={onViewItem}
+              onImplement={onImplement}
+              implementingIssue={implementingIssue}
+              onScope={onScope}
+              scopingIssue={scopingIssue}
               repo={selectedRepo}
             />
             <BugsPanel bugs={data.hierarchy.bugs} onViewItem={onViewItem} />

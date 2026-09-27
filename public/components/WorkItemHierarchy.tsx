@@ -10,6 +10,10 @@ interface WorkItemHierarchyProps {
   onAddFeature: (epicSlug: string) => void;
   onAddTask: (epicSlug: string, featureSlug: string) => void;
   onViewItem?: (issueNumber: number) => void;
+  onImplement?: (issueNumber: number) => void;
+  implementingIssue?: number | null;
+  onScope?: (issueNumber: number) => void;
+  scopingIssue?: number | null;
   repo?: string;
 }
 
@@ -20,9 +24,13 @@ interface FeatureBlockProps {
   isExpanded: boolean;
   onToggle: () => void;
   indentLevel: number;
+  onImplement?: (issueNumber: number) => void;
+  implementingIssue?: number | null;
+  onScope?: (issueNumber: number) => void;
+  scopingIssue?: number | null;
 }
 
-function FeatureBlock({ feature, onAddTask, onViewItem, isExpanded, onToggle, indentLevel }: FeatureBlockProps): React.JSX.Element {
+function FeatureBlock({ feature, onAddTask, onViewItem, isExpanded, onToggle, indentLevel, onImplement, implementingIssue, onScope, scopingIssue }: FeatureBlockProps): React.JSX.Element {
   return (
     <Box sx={{ ml: indentLevel, pl: 2, borderLeft: "1px solid", borderColor: "divider", py: 1 }}>
       <Stack direction="row" alignItems="center" spacing={1}>
@@ -77,7 +85,15 @@ function FeatureBlock({ feature, onAddTask, onViewItem, isExpanded, onToggle, in
       {isExpanded && (
         <Box sx={{ mt: 0.5, ml: 4.25 }}>
           {feature.tasks.map((task) => (
-            <IssueLink key={task.number} issue={task} onClick={onViewItem ? () => onViewItem(task.number) : undefined} />
+            <IssueLink
+              key={task.number}
+              issue={task}
+              onClick={onViewItem ? () => onViewItem(task.number) : undefined}
+              onImplement={onImplement}
+              implementingIssue={implementingIssue}
+              onScope={onScope}
+              scopingIssue={scopingIssue}
+            />
           ))}
         </Box>
       )}
@@ -92,9 +108,13 @@ interface EpicBlockProps {
   onViewItem?: (issueNumber: number) => void;
   isExpanded: boolean;
   onToggle: () => void;
+  onImplement?: (issueNumber: number) => void;
+  implementingIssue?: number | null;
+  onScope?: (issueNumber: number) => void;
+  scopingIssue?: number | null;
 }
 
-function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onToggle }: EpicBlockProps): React.JSX.Element {
+function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onToggle, onImplement, implementingIssue, onScope, scopingIssue }: EpicBlockProps): React.JSX.Element {
   const [expandedFeatures, setExpandedFeatures] = useState<Record<string, boolean>>({});
 
   const toggleFeature = (featureSlug: string) => {
@@ -168,6 +188,10 @@ function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onTo
               isExpanded={expandedFeatures[feature.slug] !== false}
               onToggle={() => toggleFeature(feature.slug)}
               indentLevel={2.5}
+              onImplement={onImplement}
+              implementingIssue={implementingIssue}
+              onScope={onScope}
+              scopingIssue={scopingIssue}
             />
           ))}
         </>
@@ -182,6 +206,10 @@ export function WorkItemHierarchy({
   onAddFeature,
   onAddTask,
   onViewItem,
+  onImplement,
+  implementingIssue,
+  onScope,
+  scopingIssue,
   repo,
 }: WorkItemHierarchyProps): React.JSX.Element {
   const [expandedEpics, setExpandedEpics] = useState<Record<string, boolean>>({});
@@ -213,6 +241,10 @@ export function WorkItemHierarchy({
           onViewItem={onViewItem}
           isExpanded={expandedEpics[epic.slug] !== false}
           onToggle={() => toggleEpic(epic.slug)}
+          onImplement={onImplement}
+          implementingIssue={implementingIssue}
+          onScope={onScope}
+          scopingIssue={scopingIssue}
         />
       ))}
       {!epics.length && (
