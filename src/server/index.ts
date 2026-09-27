@@ -28,6 +28,13 @@ import {
   updateIssueComment,
 } from "./github";
 import { labelColor as agentLabelColor } from "./agentLabels";
+import {
+  AUTH_CONFIGURED,
+  attachAuth,
+  publicUser,
+  registerAuthRoutes,
+  requireApiAuth,
+} from "./auth";
 import { MistralApiError, checkGitHubPatForMcp, ensureRepoImplementAgent, ensureRepoScopingAgent, findRepoAgent, findRepoScopingAgent, getAgentById, getConversationHistory, listModels, loadAgentPrompt, modelSupportsConnectors } from "./mistralAgents";
 import {
   AGENT_RUN_BUDGET_MS,
@@ -74,6 +81,8 @@ function isValidRepoPart(value: string): boolean {
 }
 
 function resolveToken(req: Request): string {
+  // Prefer the signed-in user's GitHub OAuth token.
+  if (req.authSession?.user.token) return req.authSession.user.token;
   const authHeader = req.get("authorization") || "";
   const headerToken = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
   return headerToken || process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || "";
@@ -447,12 +456,30 @@ app.use(express.static(path.join(__dirname, "../../public")));
 // Middleware to parse JSON
 app.use(express.json());
 
+// GitHub OAuth login (no-op when GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET are not set)
+app.use(attachAuth);
+registerAuthRoutes(app);
+app.use(
+  "/api",
+  (req: Request, res: Response, next: () => void) => {
+    // Endpoints reachable without signing in.
+    const publicPaths = ["/api/health", "/api/config", "/api/auth/status"];
+    if (publicPaths.some((p) => req.path === p)) return next();
+    return requireApiAuth(req, res, next);
+  },
+);
+
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-app.get("/api/config", (_req: Request, res: Response) => {
-  res.json({ owner: process.env.GITHUB_OWNER || "" });
+app.get("/api/config", (req: Request, res: Response) => {
+  res.json({
+    owner: process.env.GITHUB_OWNER || "",
+    authRequired: AUTH_CONFIGURED,
+    authenticated: AUTH_CONFIGURED ? Boolean(req.authSession) : true,
+    user: req.authSession ? publicUser(req.authSession.user) : null,
+  });
 });
 
 app.post("/api/ai/suggest", async (req: Request, res: Response) => {
@@ -471,7 +498,10 @@ app.post("/api/ai/suggest", async (req: Request, res: Response) => {
   }
 });
 
-function tokenSource(req: Request): { source: "authorization-header" | "GITHUB_TOKEN" | "GITHUB_PAT" | "none"; masked: string } {
+function tokenSource(req: Request): { source: "authorization-header" | "session" | "GITHUB_TOKEN" | "GITHUB_PAT" | "none"; masked: string } {
+  if (req.authSession?.user.token) {
+    return { source: "session", masked: maskToken(req.authSession.user.token) };
+  }
   const authHeader = req.get("authorization") || "";
   const headerToken = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
   if (headerToken) return { source: "authorization-header", masked: maskToken(headerToken) };
