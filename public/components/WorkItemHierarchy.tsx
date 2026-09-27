@@ -75,7 +75,7 @@ function FeatureBlock({ feature, onAddTask, onViewItem, isExpanded, onToggle, in
         </Tooltip>
       </Stack>
       {isExpanded && (
-        <Box sx={{ mt: 0.5, ml: 2.75 }}>
+        <Box sx={{ mt: 0.5, ml: 4.25 }}>
           {feature.tasks.map((task) => (
             <IssueLink key={task.number} issue={task} onClick={onViewItem ? () => onViewItem(task.number) : undefined} />
           ))}
