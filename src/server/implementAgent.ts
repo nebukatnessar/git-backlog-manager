@@ -57,6 +57,10 @@ function runsForIssue(owner: string, repo: string, issueNumber: number): AgentRu
   return [...runs.values()].filter((run) => run.owner === owner && run.repo === repo && run.issueNumber === issueNumber);
 }
 
+export function isRunActiveForIssue(owner: string, repo: string, issueNumber: number): boolean {
+  return runsForIssue(owner, repo, issueNumber).some((run) => run.state === "running");
+}
+
 export function activeRunCount(): number {
   return [...runs.values()].filter((run) => run.state === "running").length;
 }

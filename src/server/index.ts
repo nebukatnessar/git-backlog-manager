@@ -36,6 +36,7 @@ import {
   getLatestRun,
   hasInProgressLabel,
   isEligibleForImplementation,
+  isRunActiveForIssue,
   reapExpiredRuns,
   startAgentRun,
 } from "./implementAgent";
@@ -831,7 +832,11 @@ app.post("/api/repos/:repo/issues/:issueNumber/implement", async (req: Request, 
       return res.status(409).json({ error: "Issue needs both type:task and actionable:ready labels to be implemented." });
     }
     if (hasInProgressLabel(issue)) {
-      return res.status(409).json({ error: "An agent run is already in progress for this issue." });
+      if (isRunActiveForIssue(owner, repo, issueNumber)) {
+        return res.status(409).json({ error: "An agent run is already in progress for this issue." });
+      }
+      console.log(`Stale agent:in-progress label found on ${owner}/${repo}#${issueNumber} with no active run; clearing it.`);
+      await removeIssueLabel(token, owner, repo, issueNumber, "agent:in-progress");
     }
 
     const bootstrap = await getImplementAgent(token);
