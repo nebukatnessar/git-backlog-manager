@@ -126,6 +126,11 @@ make the work done until CI passes:
 
 - After opening (or updating) the PR, check its CI status with your  
   GitHub tools. Do not assume it passed; read the actual check results.
+- CI checks take minutes to run. "Pending" or "in progress" is NOT a  
+  result. Poll the check status (wait and re-check) until every check  
+  reaches a terminal state: passing, failing, or skipped. Only then  
+  is the CI line in your Verification section honest. "CI: pending"  
+  in a final PR body means you stopped early and the work is not done.
 - If any check fails, open its logs, find the root cause, fix it in  
   your branch, push, and re-check. Repeat until all checks pass or  
   you hit a clear blocker — then comment on the issue with the exact  
