@@ -61,7 +61,7 @@ That is a different skill. Rules:
   delete. Unintended deletions = restore and redo more surgically.
 - Make sure to check all imports
   - Are there any imports missing that you are referring to
-  - Are there redundant imports that you added!
+  - Are there unused imports that you added!
 - Never delete code you did not add in this run "because it looked unused" unless the issue requires it.
 
 ## When the sandbox can't edit a file
