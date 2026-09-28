@@ -39,6 +39,7 @@ That is a different skill. Rules:
 
 - Read the whole file before editing it. Find where your change fits:  
   who calls this function, what it exports, what its types are.
+- Read the repos, package.json and favour libraries that are available instead of writing native solutions.
 - Make the smallest possible edit. Modify specific lines; never rewrite a  
   file, function, or class to change part of it.
 - Match the file's existing style: naming, quotes, async patterns, error  

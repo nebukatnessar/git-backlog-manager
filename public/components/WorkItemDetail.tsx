@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-import { Avatar, Box, Button, Chip, CircularProgress, Divider, Paper, Stack, TextField, Typography } from "@mui/material";
+import { Avatar, Box, Button, Chip, CircularProgress, Divider, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
 import { ArrowBack, BugReport, Edit, FolderOpen, Save, TaskAlt } from "@mui/icons-material";
 import { type WorkItem } from "../../src/shared/workItems";
 import { AIAssistantPanel } from "./AIAssistantPanel";
@@ -114,8 +114,10 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   // Initialize label dropdowns when workItem changes
   useEffect(() => {
     if (workItem) {
-      setStatusValue(workItem.labels.status || "");
-      setPriorityValue(workItem.labels.priority || "");
+      const rawStatus = workItem.labels.status || "";
+      const rawPriority = workItem.labels.priority || "";
+      setStatusValue(rawStatus.startsWith("status:") ? rawStatus.substring(7) : rawStatus);
+      setPriorityValue(rawPriority.startsWith("priority:") ? rawPriority.substring(9) : rawPriority);
     }
   }, [workItem]);
 
@@ -128,8 +130,10 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   }
 
   const type = workItem.labels.type;
-  const status = workItem.labels.status;
-  const priority = workItem.labels.priority;
+  const rawStatus = workItem.labels.status || "";
+  const status = rawStatus.startsWith("status:") ? rawStatus.substring(7) : rawStatus;
+  const rawPriority = workItem.labels.priority || "";
+  const priority = rawPriority.startsWith("priority:") ? rawPriority.substring(9) : rawPriority;
   const epicSlug = workItem.labels.epic;
   const featureSlug = workItem.labels.feature;
   const taskSlug = workItem.labels.task;
@@ -320,11 +324,11 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
                       startAdornment: updatingStatus ? <CircularProgress size={20} /> : null,
                     }}
                   >
-                    <option value="">Select status</option>
+                    <MenuItem value="">Select status</MenuItem>
                     {STATUS_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
+                      <MenuItem key={option} value={option}>
                         {option}
-                      </option>
+                      </MenuItem>
                     ))}
                   </TextField>
                 </Box>
@@ -345,11 +349,11 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
                       startAdornment: updatingPriority ? <CircularProgress size={20} /> : null,
                     }}
                   >
-                    <option value="">Select priority</option>
+                    <MenuItem value="">Select priority</MenuItem>
                     {PRIORITY_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
+                      <MenuItem key={option} value={option}>
                         {option}
-                      </option>
+                      </MenuItem>
                     ))}
                   </TextField>
                 </Box>
