@@ -232,7 +232,7 @@ export function RepositoryContent({
             owner={owner}
             repo={selectedRepo}
             onBack={onBackFromDetail}
-            onSave={onSaveWorkItem}
+            onSave={onSaveWorkItem ?? (async () => {})}
             allEpics={data?.hierarchy.epics.map(e => ({ slug: e.slug, title: e.title, body: e.body })) || []}
             allFeatures={data?.hierarchy.epics.flatMap(e => e.features.map(f => ({ 
               slug: f.slug, 
