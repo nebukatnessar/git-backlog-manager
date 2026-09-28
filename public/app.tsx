@@ -362,7 +362,7 @@ function App(): React.JSX.Element {
       );
       const body = await response.json();
       if (!response.ok) throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not start agent run");
-      setWorkItemId(issueNumber);
+      
     } catch (implementError) {
       setError(implementError instanceof Error ? implementError.message : String(implementError));
     } finally {
@@ -379,7 +379,6 @@ function App(): React.JSX.Element {
       );
       const body = await response.json();
       if (!response.ok) throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not start scoping run");
-      setWorkItemId(issueNumber);
     } catch (scopeError) {
       setError(scopeError instanceof Error ? scopeError.message : String(scopeError));
     } finally {

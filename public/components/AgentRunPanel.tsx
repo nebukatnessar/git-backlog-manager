@@ -273,6 +273,18 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
               <Typography variant="caption" color="text.secondary">
                 {new Date(scopingRun.startedAt).toLocaleTimeString()}
               </Typography>
+              {scopingRun.conversationId && (
+                <Button
+                  size="small"
+                  href={`/api/agent/conversations/${scopingRun.conversationId}/history`}
+                  target="_blank"
+                  rel="noreferrer"
+                  startIcon={<OpenInNew />}
+                  sx={{ minHeight: 24, fontSize: "0.75rem", fontFamily: "monospace" }}
+                >
+                  {scopingRun.conversationId.slice(0, 8)}…
+                </Button>
+              )}
             </Stack>
           )}
           {scopingRun?.state === "running" && <LinearProgress sx={{ mb: 1 }} />}

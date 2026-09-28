@@ -66,9 +66,9 @@ function RunRow({ run, kind }: { run: AgentsPopupRun; kind: string }): React.JSX
         {new Date(run.startedAt).toLocaleTimeString()}
       </Typography>
       {run.conversationId && (
-        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace" }}>
-          {run.conversationId}
-        </Typography>
+        <Button size="small" href={`/api/agent/conversations/${run.conversationId}/history`} target="_blank" rel="noreferrer" startIcon={<OpenInNew />} sx={{ minHeight: 24, fontSize: "0.75rem", fontFamily: "monospace" }}>
+          {run.conversationId.slice(0, 8)}…
+        </Button>
       )}
       {run.pullRequestUrl && (
         <Button size="small" href={run.pullRequestUrl} target="_blank" rel="noreferrer" startIcon={<OpenInNew />} sx={{ minHeight: 24, fontSize: "0.75rem" }}>
