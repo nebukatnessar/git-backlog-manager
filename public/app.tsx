@@ -6,7 +6,7 @@ import {
   Stack, TextField, ThemeProvider, Tooltip, Typography, createTheme,
 } from "@mui/material";
 import {
-  Add, BugReport, ChevronRight, FolderOpen, GitHub, Inbox, Lock, Refresh,
+  Add, BugReport, ChevronRight, FolderOpen, GitHub, Inbox, Lock, Logout, Refresh,
   Search, TaskAlt,
 } from "@mui/icons-material";
 import {
@@ -163,6 +163,10 @@ function App(): React.JSX.Element {
   const [workItemError, setWorkItemError] = useState("");
   const [implementingIssue, setImplementingIssue] = useState<number | null>(null);
   const [scopingIssue, setScopingIssue] = useState<number | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authUser, setAuthUser] = useState<{ login: string; name: string | null; avatarUrl: string | null; htmlUrl: string | null } | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authError, setAuthError] = useState("");
 
   // Read URL params
   function readUrlParams(): { repo?: string; state?: string; workItemId?: number } {
@@ -275,7 +279,27 @@ function App(): React.JSX.Element {
       setWorkItemId(urlWorkItemId);
     }
 
-    fetch("/api/config").then((response) => response.json() as Promise<{ owner: string }>).then((config) => { setOwner(config.owner); return loadRepositories(config.owner); }).catch((requestError) => setError(requestError instanceof Error ? requestError.message : String(requestError)));
+    // Check login state first; skip data loading until signed in (when required).
+    fetch("/api/auth/status")
+      .then((response) => response.json() as Promise<{ authRequired?: boolean; authenticated?: boolean; user?: typeof authUser }>)
+      .then((status) => {
+        setAuthRequired(Boolean(status.authRequired));
+        setAuthUser(status.user || null);
+        setAuthChecked(true);
+        if (status.authRequired && !status.authenticated) return;
+        fetch("/api/config").then((response) => response.json() as Promise<{ owner: string }>).then((config) => { setOwner(config.owner); return loadRepositories(config.owner); }).catch((requestError) => setError(requestError instanceof Error ? requestError.message : String(requestError)));
+      })
+      .catch((requestError) => {
+        setAuthChecked(true);
+        setError(requestError instanceof Error ? requestError.message : String(requestError));
+      });
+
+    // Show OAuth errors redirected back from GitHub
+    const authErrorParam = new URLSearchParams(window.location.search).get("auth_error");
+    if (authErrorParam) {
+      setAuthError(authErrorParam);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
 
     // Handle browser back/forward navigation
     const handlePopState = () => {
@@ -386,6 +410,49 @@ function App(): React.JSX.Element {
     }
   }, [selectedRepo, owner, workItem]);
   
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      window.location.href = "/";
+    }
+  }, []);
+
+  if (authRequired && !authUser) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Box sx={{ minHeight: "100vh", display: "grid", placeItems: "center", bgcolor: "background.default" }}>
+          <Box sx={{ textAlign: "center", maxWidth: 420, px: 3 }}>
+            <Avatar sx={{ mx: "auto", mb: 3, width: 72, height: 72, bgcolor: "#1d3733", color: "primary.main" }}>
+              <GitHub />
+            </Avatar>
+            <Typography variant="h4" gutterBottom>Sign in to continue</Typography>
+            <Typography color="text.secondary" sx={{ mb: 1 }}>
+              Git Backlog Manager uses your GitHub account to load repositories and manage work items.
+            </Typography>
+            {authError ? (
+              <Alert severity="error" sx={{ my: 2, textAlign: "left" }}>{authError}</Alert>
+            ) : null}
+            {!authChecked ? (
+              <CircularProgress size={28} sx={{ mt: 3 }} />
+            ) : (
+              <Button
+                variant="contained"
+                size="large"
+                startIcon={<GitHub />}
+                href="/auth/github"
+                sx={{ mt: 3, textTransform: "none" }}
+              >
+                Sign in with GitHub
+              </Button>
+            )}
+          </Box>
+        </Box>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -401,6 +468,17 @@ function App(): React.JSX.Element {
           onRefreshRepositories={loadRepositories}
         />
         <Box component="main" sx={{ flexGrow: 1, px: { xs: 3, md: 6 }, py: 5, maxWidth: 1300, mx: "auto", width: "100%" }}>
+          {authUser ? (
+            <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end" sx={{ mb: -3 }}>
+              <Avatar src={authUser.avatarUrl || undefined} alt={authUser.login} sx={{ width: 28, height: 28 }} />
+              <Typography variant="body2" color="text.secondary">@{authUser.login}</Typography>
+              <Tooltip title="Sign out">
+                <IconButton size="small" onClick={() => { void handleLogout(); }}>
+                  <Logout />
+                </IconButton>
+              </Tooltip>
+            </Stack>
+          ) : null}
           {!selectedRepo ? (
             <Box sx={{ minHeight: "80vh", display: "grid", placeItems: "center", textAlign: "center" }}>
               <Box>
