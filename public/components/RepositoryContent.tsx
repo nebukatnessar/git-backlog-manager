@@ -100,26 +100,43 @@ function matchesFilters(item: WorkItem | Epic | Feature, filters: FilterState): 
   return true;
 }
 
-// Helper function to filter a feature's tasks
-function filterFeatureTasks(feature: Feature, filters: FilterState): Feature {
+// Helper function to filter a feature's tasks and determine if the feature should be included
+function filterFeatureTasks(feature: Feature, filters: FilterState): { feature: Feature; includeFeature: boolean } {
+  const filteredTasks = feature.tasks.filter((task) => matchesFilters(task, filters));
+  
+  // Include the feature if it matches the filters OR has any matching tasks
+  const featureMatches = matchesFilters(feature, filters);
+  const hasMatchingTasks = filteredTasks.length > 0;
+  const includeFeature = featureMatches || hasMatchingTasks;
+  
   return {
-    ...feature,
-    tasks: feature.tasks.filter((task) => matchesFilters(task, filters)),
+    feature: {
+      ...feature,
+      tasks: filteredTasks,
+    },
+    includeFeature,
   };
 }
 
-// Helper function to filter an epic's features and their tasks
-function filterEpicFeatures(epic: Epic, filters: FilterState): Epic {
+// Helper function to filter an epic's features and determine if the epic should be included
+function filterEpicFeatures(epic: Epic, filters: FilterState): { epic: Epic; includeEpic: boolean } {
+  // Filter features and their tasks
+  const filteredFeatures = epic.features.map((feature) => filterFeatureTasks(feature, filters));
+  
+  // Include features that match or have matching tasks
+  const includedFeatures = filteredFeatures.filter((result) => result.includeFeature);
+  
+  // Include the epic if it matches the filters OR has any included features
+  const epicMatches = matchesFilters(epic, filters);
+  const hasIncludedFeatures = includedFeatures.length > 0;
+  const includeEpic = epicMatches || hasIncludedFeatures;
+  
   return {
-    ...epic,
-    features: epic.features
-      .map((feature) => filterFeatureTasks(feature, filters))
-      .filter((feature) => {
-        // Keep feature if it matches filters or has tasks that match
-        const featureMatches = matchesFilters(feature, filters);
-        const hasMatchingTasks = feature.tasks.length > 0;
-        return featureMatches || hasMatchingTasks;
-      }),
+    epic: {
+      ...epic,
+      features: includedFeatures.map((result) => result.feature),
+    },
+    includeEpic,
   };
 }
 
@@ -164,18 +181,22 @@ export function RepositoryContent({
   const filteredData = useMemo(() => {
     if (!data) return null;
 
+    // For "All" filter with no other filters, show everything
+    if (filters.githubState === "all" && filters.statusLabels.length === 0 && filters.actionable.length === 0) {
+      return data;
+    }
+
+    // For Open/Closed filters, include parents if their children match
+    const filteredEpics = data.hierarchy.epics
+      .map((epic) => filterEpicFeatures(epic, filters))
+      .filter((result) => result.includeEpic)
+      .map((result) => result.epic);
+
     return {
       ...data,
       hierarchy: {
         ...data.hierarchy,
-        epics: data.hierarchy.epics
-          .map((epic) => filterEpicFeatures(epic, filters))
-          .filter((epic) => {
-            // Keep epic if it matches filters or has features/tasks that match
-            const epicMatches = matchesFilters(epic, filters);
-            const hasMatchingFeatures = epic.features.length > 0;
-            return epicMatches || hasMatchingFeatures;
-          }),
+        epics: filteredEpics,
       },
     };
   }, [data, filters]);
@@ -211,7 +232,7 @@ export function RepositoryContent({
             owner={owner}
             repo={selectedRepo}
             onBack={onBackFromDetail}
-            onSave={onSaveWorkItem}
+            onSave={onSaveWorkItem ?? (async () => {})}
             allEpics={data?.hierarchy.epics.map(e => ({ slug: e.slug, title: e.title, body: e.body })) || []}
             allFeatures={data?.hierarchy.epics.flatMap(e => e.features.map(f => ({ 
               slug: f.slug, 
