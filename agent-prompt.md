@@ -58,7 +58,10 @@ That is a different skill. Rules:
 - After each edit, re-read the changed region. Before every push, diff the  
   file against the original: every deleted line must be one you meant to  
   delete. Unintended deletions = restore and redo more surgically.
-- Never delete code "because it looked unused" unless the issue requires it.
+- Make sure to check all imports
+  - Are there any imports missing that you are referring to
+  - Are there redundant imports that you added!
+- Never delete code you did not add in this run "because it looked unused" unless the issue requires it.
 
 ## When the sandbox can't edit a file
 
