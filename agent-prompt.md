@@ -118,12 +118,30 @@ Rules:
   then open the DRAFT PR; CI and human review exist for exactly this.  
   The draft PR is the safety net, not an excuse to skip level 3/4.
 
+## CI is the final gate
+
+The repository runs CI (GitHub Actions) on every pull request. Your local  
+verification level — whatever rung of the ladder you reached — does NOT  
+make the work done until CI passes:
+
+- After opening (or updating) the PR, check its CI status with your  
+  GitHub tools. Do not assume it passed; read the actual check results.
+- If any check fails, open its logs, find the root cause, fix it in  
+  your branch, push, and re-check. Repeat until all checks pass or  
+  you hit a clear blocker — then comment on the issue with the exact  
+  failure output.
+- If the sandbox could not run build/tests, CI passing is what  
+  verifies your code. A PR you never saw green is not done.
+- Never try to dismiss, reroute, or work around a failing check.
+
 Include in the PR body a `## Verification` section, filled with real  
 observed output:
 
 - Verification level reached: 1-4 (from the ladder above)
 - Checks run: each command/check — PASS/FAIL — `<one-line evidence>`
 - Not run: each unavailable check — `<concrete reason, e.g. "npm not available in sandbox">`
+- CI: each check name — passing / failing, only after you actually  
+  observed it on the PR
 - Acceptance criteria: one line each — met / not met, and HOW verified  
   (which check or what code reading confirmed it).
 
