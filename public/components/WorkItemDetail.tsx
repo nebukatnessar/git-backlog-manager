@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { Avatar, Box, Button, Chip, CircularProgress, Divider, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
-import { ArrowBack, BugReport, Edit, FolderOpen, Save, TaskAlt } from "@mui/icons-material";
+import { ArrowBack, BugReport, Edit, FolderOpen, Save, TaskAlt, PlayCircle, TravelExplore } from "@mui/icons-material";
 import { type WorkItem } from "../../src/shared/workItems";
 import { AIAssistantPanel } from "./AIAssistantPanel";
-import { AgentRunPanel } from "./AgentRunPanel";
+import { AgentRunPanel, useAgentRun } from "./AgentRunPanel";
+import { Alert } from "@mui/material";
 
 interface WorkItemDetailProps {
   workItem: WorkItem | null;
@@ -67,6 +68,15 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   const [updatingPriority, setUpdatingPriority] = useState(false);
   const [statusError, setStatusError] = useState<string>("");
   const [priorityError, setPriorityError] = useState<string>("");
+
+  // Agent run hook for header buttons
+  const { canImplement, canScope, handleStart, handleScope, starting, scoping, error: agentError } = useAgentRun({
+    owner,
+    repo,
+    issueNumber: workItem?.number || 0,
+    issueType: workItem?.labels.type,
+    actionableLabel: workItem?.labels.actionable,
+  });
 
   // Fetch repository README when component mounts or repo changes
   useEffect(() => {
@@ -137,6 +147,7 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   const epicSlug = workItem.labels.epic;
   const featureSlug = workItem.labels.feature;
   const taskSlug = workItem.labels.task;
+  const actionableLabel = workItem.labels.actionable;
 
   // Prepare parent epic and feature data in the format expected by AIAssistantPanel
   const foundEpic = epicSlug ? allEpics.find(e => e.slug === epicSlug) : undefined;
@@ -282,6 +293,32 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
             Edit
           </Button>
         )}
+        {/* Scope and Implement buttons for task issues */}
+        {type === "task" && (
+          <>
+            {canScope && (
+              <Button
+                variant="contained"
+                startIcon={scoping ? <CircularProgress size={16} color="inherit" /> : <TravelExplore />}
+                disabled={scoping}
+                onClick={() => void handleScope()}
+                color="secondary"
+              >
+                {scoping ? "Scoping..." : "Scope"}
+              </Button>
+            )}
+            {canImplement && (
+              <Button
+                variant="contained"
+                startIcon={starting ? <CircularProgress size={16} color="inherit" /> : <PlayCircle />}
+                disabled={starting}
+                onClick={() => void handleStart()}
+              >
+                {starting ? "Running..." : "Implement"}
+              </Button>
+            )}
+          </>
+        )}
         <Chip
           icon={getTypeIcon(type)}
           label={getTypeLabel(type)}
@@ -289,6 +326,13 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
           sx={{ borderColor: "divider", color: "text.secondary" }}
         />
       </Stack>
+
+      {/* Agent error alert (shared with panel) */}
+      {agentError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {agentError}
+        </Alert>
+      )}
 
       <Stack direction={{ xs: "column", lg: "row" }} spacing={3} alignItems="flex-start">
         <Paper variant="outlined" sx={{ p: 3, borderColor: "divider", flex: 1, width: "100%" }}>
@@ -456,15 +500,14 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
         {/* AI Assistant Panel - on the right side */}
         <Box sx={{ width: { lg: 360 }, flexShrink: 0 }}>
           <Stack spacing={2}>
-            {type === "task" && (
-              <AgentRunPanel
-                owner={owner}
-                repo={repo}
-                issueNumber={workItem.number}
-                issueType={type}
-                actionableLabel={workItem.labels.actionable}
-              />
-            )}
+            {/* AgentRunPanel now rendered for all work item types */}
+            <AgentRunPanel
+              owner={owner}
+              repo={repo}
+              issueNumber={workItem.number}
+              issueType={type}
+              actionableLabel={actionableLabel}
+            />
             <AIAssistantPanel
             key={`ai-assistant-${workItem.number}`}
             description={isEditing ? editBody : (workItem.body || "")}
