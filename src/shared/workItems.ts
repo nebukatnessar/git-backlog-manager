@@ -18,6 +18,7 @@ export interface WorkItem {
   state: string;
   labels: Record<string, string>;
   body?: string;
+  stackRank?: number;
 }
 
 export interface Task extends WorkItem {
@@ -204,6 +205,19 @@ export function parseNamespacedLabels(labels: GitHubIssue["labels"]): Record<str
   return parsed;
 }
 
+// New function to extract stack-rank from labels
+export function getStackRankFromLabels(labels: GitHubIssue["labels"]): number | undefined {
+  const parsed = parseNamespacedLabels(labels);
+  const stackRankLabel = parsed["stack-rank"];
+  if (stackRankLabel) {
+    const rank = parseInt(stackRankLabel, 10);
+    if (!isNaN(rank)) {
+      return rank;
+    }
+  }
+  return undefined;
+}
+
 function mapIssue(issue: GitHubIssue): WorkItem {
   return {
     number: issue.number,
@@ -212,7 +226,17 @@ function mapIssue(issue: GitHubIssue): WorkItem {
     state: issue.state,
     labels: parseNamespacedLabels(issue.labels),
     body: issue.body,
+    stackRank: getStackRankFromLabels(issue.labels),
   };
+}
+
+// Sort items by stack-rank (ascending)
+function sortByStackRank<T extends WorkItem>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const aRank = a.stackRank ?? Number.MAX_SAFE_INTEGER;
+    const bRank = b.stackRank ?? Number.MAX_SAFE_INTEGER;
+    return aRank - bRank;
+  });
 }
 
 export function buildWorkItemHierarchy(issues: GitHubIssue[] = []): WorkItemHierarchy {
@@ -225,6 +249,7 @@ export function buildWorkItemHierarchy(issues: GitHubIssue[] = []): WorkItemHier
   const orphanTasks: WorkItem[] = [];
   const unclassified: WorkItem[] = [];
 
+  // First pass: collect epics
   for (const issue of mappedIssues) {
     if (issue.labels.type === "epic" && issue.labels.epic) {
       const epicNode: Epic = { ...issue, slug: issue.labels.epic, features: [] };
@@ -232,6 +257,7 @@ export function buildWorkItemHierarchy(issues: GitHubIssue[] = []): WorkItemHier
     }
   }
 
+  // Second pass: collect features and link to epics
   for (const issue of mappedIssues) {
     if (issue.labels.type !== "feature") continue;
 
@@ -251,6 +277,7 @@ export function buildWorkItemHierarchy(issues: GitHubIssue[] = []): WorkItemHier
     else orphanFeatures.push(featureNode);
   }
 
+  // Third pass: collect tasks and link to features
   for (const issue of mappedIssues) {
     if (issue.labels.type === "task") {
       const epicSlug = issue.labels.epic;
@@ -279,11 +306,36 @@ export function buildWorkItemHierarchy(issues: GitHubIssue[] = []): WorkItemHier
     }
   }
 
+  // Sort all levels by stack-rank
+  const sortedEpics = sortByStackRank([...epicsBySlug.values()]);
+  for (const epic of sortedEpics) {
+    epic.features = sortByStackRank(epic.features);
+    for (const feature of epic.features) {
+      feature.tasks = sortByStackRank(feature.tasks);
+    }
+  }
+
   return {
-    epics: [...epicsBySlug.values()],
-    bugs,
-    orphanFeatures,
-    orphanTasks,
-    unclassified,
+    epics: sortedEpics,
+    bugs: sortByStackRank(bugs),
+    orphanFeatures: sortByStackRank(orphanFeatures),
+    orphanTasks: sortByStackRank(orphanTasks),
+    unclassified: sortByStackRank(unclassified),
   };
+}
+
+// New function to assign stack-ranks to items without them
+export function assignStackRanksToItemsWithoutRank(issues: GitHubIssue[]): Array<{ issueNumber: number; stackRank: number }> {
+  const itemsWithoutRank: Array<{ issueNumber: number; stackRank: number }> = [];
+
+  for (const issue of issues) {
+    const currentRank = getStackRankFromLabels(issue.labels);
+    if (currentRank === undefined) {
+      // Assign stack-rank based on issueNumber * 1000
+      const newRank = issue.number * 1000;
+      itemsWithoutRank.push({ issueNumber: issue.number, stackRank: newRank });
+    }
+  }
+
+  return itemsWithoutRank;
 }
