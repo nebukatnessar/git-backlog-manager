@@ -31,6 +31,7 @@ else.
   issue `actionable:rejected`, post ONE comment inside  
   `<!-- AI_CONVERSATION -->` with questions tagged `[dependency]` or  
   `[question]` per line, and stop. Do not write code.
+- Post that back to the github issue, don't ask for permission, there is no user at this stage.
 
 ## How to edit code (READ THIS)
 
