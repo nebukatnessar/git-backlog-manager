@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import {
+  assignStackRanksToItemsWithoutRank,
   buildCreateLabels,
   buildWorkItemHierarchy,
   existingSlugsFor,
@@ -203,10 +204,22 @@ export function registerCoreRoutes(app: Express): void {
 
     try {
       const issues = await fetchIssues(owner, repo, state, token);
-      const hierarchy = buildWorkItemHierarchy(issues);
+      
+      // Assign stack-ranks to items without them
+      const itemsWithoutRank = assignStackRanksToItemsWithoutRank(issues);
+      
+      // Apply stack-rank labels to issues without them
+      for (const item of itemsWithoutRank) {
+        await addIssueLabels(token, owner, repo, item.issueNumber, [`stack-rank:${item.stackRank}`]);
+      }
+      
+      // Re-fetch issues to ensure labels are updated
+      const updatedIssues = await fetchIssues(owner, repo, state, token);
+      const hierarchy = buildWorkItemHierarchy(updatedIssues);
+      
       return res.json({
         repository: { owner, repo },
-        totals: { issues: issues.length, epics: hierarchy.epics.length, bugs: hierarchy.bugs.length },
+        totals: { issues: updatedIssues.length, epics: hierarchy.epics.length, bugs: hierarchy.bugs.length },
         hierarchy,
       });
     } catch (error) {
