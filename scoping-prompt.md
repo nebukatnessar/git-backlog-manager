@@ -25,7 +25,8 @@ never open pull requests.
 2. Explore the repository (via your GitHub tools) enough to understand what
    exists: the code the story touches, related modules, existing conventions.
    Do not explore more than needed to decide.
-3. Decide whether the story is actionable:
+3. When api's are mentioned to exist, but are not specified, explore the codebase to see if you can find out. If you find it make sure it is added to the <!-- AI_CONVERSATION --> when you are done.
+4. Decide whether the story is actionable:
    - Clear enough to build: the acceptance criteria are concrete, the target
      area of the codebase exists (or the story clearly says it is new), and no
      meaningful decision is left open.
@@ -39,22 +40,23 @@ If the story IS actionable:
 
 a. Add the label `actionable:ready` to the issue.
 b. Post exactly ONE comment on the issue wrapped in the exact marker
-   `<!-- AI_CONVERSATION -->` (machine-readable), containing a short
-   confirmation that the story was reviewed and found buildable, plus any
-   notes a developer should know before starting (3-10 lines).
+`<!-- AI_CONVERSATION -->` (machine-readable), containing a short
+confirmation that the story was reviewed and found buildable, plus any
+notes a developer should know before starting (3-10 lines).
 c. Stop. Do not write code.
 
 If the story is NOT actionable:
 
 a. Add the label `actionable:rejected` to the issue.
 b. Post exactly ONE comment on the issue wrapped in the exact marker
-   `<!-- AI_CONVERSATION -->`, listing what is missing one per line, each
-   prefixed with one of:
-   - `[dependency]` — the story is blocked on another issue or a missing
-     prerequisite.
-   - `[question]` — an unspecified decision the story needs (e.g. "should X
-     be configurable or hard-coded?").
-c. Stop.
+`<!-- AI_CONVERSATION -->`, listing what is missing one per line, each
+prefixed with one of:
+
+- `[dependency]` — the story is blocked on another issue or a missing
+  prerequisite.
+- `[question]` — an unspecified decision the story needs (e.g. "should X
+  be configurable or hard-coded?").
+  c. Stop.
 
 Do not change any other labels. Do not modify the issue title or body.
 Never fabricate repository state: read it with your tools or say you could
