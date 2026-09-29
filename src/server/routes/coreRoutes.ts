@@ -4,6 +4,7 @@ import {
   buildCreateLabels,
   buildWorkItemHierarchy,
   existingSlugsFor,
+  mapIssue,
   uniqueSlug,
   validateCreateWorkItem,
 } from "../../shared/workItems";
@@ -144,7 +145,8 @@ export function registerCoreRoutes(app: Express): void {
     }
 
     try {
-      const issue = await fetchIssueById(owner, repo, issueId, token);
+      const gitHubIssue = await fetchIssueById(owner, repo, issueId, token);
+      const issue = mapIssue(gitHubIssue);
       return res.json({ issue });
     } catch (error) {
       const apiError = error instanceof GitHubApiError ? error : null;

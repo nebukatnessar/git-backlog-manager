@@ -218,7 +218,7 @@ export function getStackRankFromLabels(labels: GitHubIssue["labels"]): number | 
   return undefined;
 }
 
-function mapIssue(issue: GitHubIssue): WorkItem {
+export function mapIssue(issue: GitHubIssue): WorkItem {
   return {
     number: issue.number,
     title: issue.title,
