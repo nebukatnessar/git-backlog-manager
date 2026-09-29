@@ -4,7 +4,7 @@ import { Avatar, Box, Button, Chip, CircularProgress, Dialog, DialogContent, Dia
 import { ArrowBack, BugReport, Edit, FolderOpen, Info, Save, TaskAlt, PlayCircle, TravelExplore } from "@mui/icons-material";
 import { type WorkItem } from "../../src/shared/workItems";
 import { AIAssistantPanel } from "./AIAssistantPanel";
-import { AgentRunPanel, useAgentRun } from "./AgentRunPanel";
+import { AgentRunPanel } from "./AgentRunPanel";
 import { Alert } from "@mui/material";
 
 interface WorkItemDetailProps {
@@ -69,20 +69,56 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   const [statusError, setStatusError] = useState<string>("");
   const [priorityError, setPriorityError] = useState<string>("");
   const [labelsDialogOpen, setLabelsDialogOpen] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [scoping, setScoping] = useState(false);
+  const [agentError, setAgentError] = useState("");
 
   // State for stack rank field
   const [stackRankValue, setStackRankValue] = useState<string>("");
   const [updatingStackRank, setUpdatingStackRank] = useState(false);
   const [stackRankError, setStackRankError] = useState<string>("");
 
-  // Agent run hook for header buttons
-  const { handleStart, handleScope, starting, scoping, error: agentError } = useAgentRun({
-    owner,
-    repo,
-    issueNumber: workItem?.number || 0,
-    issueType: workItem?.labels.type,
-    actionableLabel: workItem?.labels.actionable,
-  });
+  // Handler for starting implementation
+  const handleStart = useCallback(async () => {
+    if (!workItem || !owner || !repo) return;
+    setStarting(true);
+    setAgentError("");
+    try {
+      const response = await fetch(
+        `/api/repos/${encodeURIComponent(repo)}/issues/${workItem.number}/implement?owner=${encodeURIComponent(owner)}`,
+        { method: "POST" }
+      );
+      const body = await response.json();
+      if (!response.ok) {
+        throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not start agent run");
+      }
+    } catch (error) {
+      setAgentError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setStarting(false);
+    }
+  }, [workItem, owner, repo]);
+
+  // Handler for starting scoping
+  const handleScope = useCallback(async () => {
+    if (!workItem || !owner || !repo) return;
+    setScoping(true);
+    setAgentError("");
+    try {
+      const response = await fetch(
+        `/api/repos/${encodeURIComponent(repo)}/issues/${workItem.number}/scope?owner=${encodeURIComponent(owner)}`,
+        { method: "POST" }
+      );
+      const body = await response.json();
+      if (!response.ok) {
+        throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not start scoping run");
+      }
+    } catch (error) {
+      setAgentError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setScoping(false);
+    }
+  }, [workItem, owner, repo]);
 
   // Fetch repository README when component mounts or repo changes
   useEffect(() => {
@@ -159,9 +195,6 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   const taskSlug = workItem.labels.task;
   const actionableLabel = workItem.labels.actionable;
   
-  // Debug logging for button visibility
-  console.log("WorkItemDetail - type:", type, "actionableLabel:", actionableLabel, "labels:", workItem.labels);
-
   // Prepare parent epic and feature data in the format expected by AIAssistantPanel
   const foundEpic = epicSlug ? allEpics.find(e => e.slug === epicSlug) : undefined;
   const foundFeature = featureSlug ? allFeatures.find(f => f.slug === featureSlug && f.epicSlug === epicSlug) : undefined;
@@ -352,18 +385,6 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
       setUpdatingStackRank(false);
     }
   }, [workItem, owner, repo, stackRankValue]);
-
-  // Debug: log task button conditions
-  if (workItem?.labels.type === "task") {
-    console.log("WorkItemDetail - Task detected:", {
-      type: workItem.labels.type,
-      actionableLabel: workItem.labels.actionable,
-      allLabels: workItem.labels
-    });
-    console.log("WorkItemDetail - Scope button will show:", !!(workItem.labels.actionable && workItem.labels.actionable !== "ready" && workItem.labels.actionable !== "implemented"));
-    console.log("WorkItemDetail - Implement button will show:", workItem.labels.actionable === "ready");
-  }
-
   return (
     <Box>
       <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3, flexWrap: "wrap" }}>

@@ -339,3 +339,28 @@ export function assignStackRanksToItemsWithoutRank(issues: GitHubIssue[]): Array
 
   return itemsWithoutRank;
 }
+
+// Helper function to check if a work item matches the search query
+export function itemMatchesQuery(item: WorkItem | Epic | Feature, query: string): boolean {
+  if (!query) return true;
+
+  const lowerQuery = query.toLowerCase();
+
+  // Match against title
+  if (item.title.toLowerCase().includes(lowerQuery)) return true;
+
+  // Match against issue number
+  if (item.number.toString().includes(lowerQuery)) return true;
+
+  // Match against label slugs/namespaces
+  for (const [key, value] of Object.entries(item.labels)) {
+    if (key.toLowerCase().includes(lowerQuery) || value.toLowerCase().includes(lowerQuery)) {
+      return true;
+    }
+  }
+
+  // Match against slug if it exists (for Epic, Feature, Task)
+  if ("slug" in item && item.slug.toLowerCase().includes(lowerQuery)) return true;
+
+  return false;
+}

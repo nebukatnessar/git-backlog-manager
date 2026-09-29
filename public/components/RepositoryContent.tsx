@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from "react";
-import { Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
-import { SmartToy } from "@mui/icons-material";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
+import { Box, Button, CircularProgress, Stack, Typography, TextField, InputAdornment, IconButton } from "@mui/material";
+import { SmartToy, Search, Clear } from "@mui/icons-material";
 import { type WorkItem, type Epic, type Feature } from "../../src/shared/workItems";
+import { itemMatchesQuery } from "../../src/shared/workItems";
 import { MetricsBar } from "./MetricsBar";
 import { WorkItemHierarchy } from "./WorkItemHierarchy";
 import { BugsPanel } from "./BugsPanel";
@@ -101,14 +102,20 @@ function matchesFilters(item: WorkItem | Epic | Feature, filters: FilterState): 
 }
 
 // Helper function to filter a feature's tasks and determine if the feature should be included
-function filterFeatureTasks(feature: Feature, filters: FilterState): { feature: Feature; includeFeature: boolean } {
-  const filteredTasks = feature.tasks.filter((task) => matchesFilters(task, filters));
-  
-  // Include the feature if it matches the filters OR has any matching tasks
-  const featureMatches = matchesFilters(feature, filters);
+function filterFeatureTasks(
+  feature: Feature,
+  filters: FilterState,
+  searchQuery: string
+): { feature: Feature; includeFeature: boolean } {
+  const filteredTasks = feature.tasks.filter(
+    (task) => matchesFilters(task, filters) && itemMatchesQuery(task, searchQuery)
+  );
+
+  // Include the feature if it matches the filters AND search query OR has any matching tasks
+  const featureMatches = matchesFilters(feature, filters) && itemMatchesQuery(feature, searchQuery);
   const hasMatchingTasks = filteredTasks.length > 0;
   const includeFeature = featureMatches || hasMatchingTasks;
-  
+
   return {
     feature: {
       ...feature,
@@ -119,18 +126,24 @@ function filterFeatureTasks(feature: Feature, filters: FilterState): { feature: 
 }
 
 // Helper function to filter an epic's features and determine if the epic should be included
-function filterEpicFeatures(epic: Epic, filters: FilterState): { epic: Epic; includeEpic: boolean } {
+function filterEpicFeatures(
+  epic: Epic,
+  filters: FilterState,
+  searchQuery: string
+): { epic: Epic; includeEpic: boolean } {
   // Filter features and their tasks
-  const filteredFeatures = epic.features.map((feature) => filterFeatureTasks(feature, filters));
-  
+  const filteredFeatures = epic.features.map((feature) =>
+    filterFeatureTasks(feature, filters, searchQuery)
+  );
+
   // Include features that match or have matching tasks
   const includedFeatures = filteredFeatures.filter((result) => result.includeFeature);
-  
-  // Include the epic if it matches the filters OR has any included features
-  const epicMatches = matchesFilters(epic, filters);
+
+  // Include the epic if it matches the filters AND search query OR has any included features
+  const epicMatches = matchesFilters(epic, filters) && itemMatchesQuery(epic, searchQuery);
   const hasIncludedFeatures = includedFeatures.length > 0;
   const includeEpic = epicMatches || hasIncludedFeatures;
-  
+
   return {
     epic: {
       ...epic,
@@ -169,6 +182,34 @@ export function RepositoryContent({
     statusLabels: [],
     actionable: [],
   });
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Debounce the search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Handle search input changes
+  const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setSearch(event.target.value);
+  };
+
+  // Handle clear search
+  const handleClearSearch = () => {
+    setSearch("");
+    setDebouncedSearch("");
+  };
+
+  // Handle key down for Esc to clear search
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      handleClearSearch();
+    }
+  };
 
   // Handle filter changes from FilterDialog
   const handleApplyFilters = (newFilters: FilterState) => {
@@ -177,29 +218,58 @@ export function RepositoryContent({
     onStateChange(newFilters.githubState);
   };
 
-  // Filter the epics, features, and tasks based on the current filters
+  // Filter the epics, features, and tasks based on the current filters and search query
   const filteredData = useMemo(() => {
     if (!data) return null;
 
-    // For "All" filter with no other filters, show everything
-    if (filters.githubState === "all" && filters.statusLabels.length === 0 && filters.actionable.length === 0) {
+    // For "All" filter with no other filters and no search, show everything
+    if (
+      filters.githubState === "all" &&
+      filters.statusLabels.length === 0 &&
+      filters.actionable.length === 0 &&
+      !debouncedSearch
+    ) {
       return data;
     }
 
     // For Open/Closed filters, include parents if their children match
     const filteredEpics = data.hierarchy.epics
-      .map((epic) => filterEpicFeatures(epic, filters))
+      .map((epic) => filterEpicFeatures(epic, filters, debouncedSearch))
       .filter((result) => result.includeEpic)
       .map((result) => result.epic);
+
+    // Filter bugs based on filters and search query
+    const filteredBugs = data.hierarchy.bugs.filter(
+      (bug) => matchesFilters(bug, filters) && itemMatchesQuery(bug, debouncedSearch)
+    );
+
+    // Filter orphanFeatures based on filters and search query
+    const filteredOrphanFeatures = data.hierarchy.orphanFeatures.filter(
+      (feature) => matchesFilters(feature, filters) && itemMatchesQuery(feature, debouncedSearch)
+    );
+
+    // Filter orphanTasks based on filters and search query
+    const filteredOrphanTasks = data.hierarchy.orphanTasks.filter(
+      (task) => matchesFilters(task, filters) && itemMatchesQuery(task, debouncedSearch)
+    );
+
+    // Filter unclassified based on filters and search query
+    const filteredUnclassified = data.hierarchy.unclassified.filter(
+      (item) => matchesFilters(item, filters) && itemMatchesQuery(item, debouncedSearch)
+    );
 
     return {
       ...data,
       hierarchy: {
         ...data.hierarchy,
         epics: filteredEpics,
+        bugs: filteredBugs,
+        orphanFeatures: filteredOrphanFeatures,
+        orphanTasks: filteredOrphanTasks,
+        unclassified: filteredUnclassified,
       },
     };
-  }, [data, filters]);
+  }, [data, filters, debouncedSearch]);
 
   // If we're viewing a specific work item detail
   if (workItemId !== undefined && onBackFromDetail) {
@@ -269,6 +339,28 @@ export function RepositoryContent({
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} alignItems="center">
+          <TextField
+            size="small"
+            placeholder="Search work items…"
+            value={search}
+            onChange={handleSearchChange}
+            onKeyDown={handleKeyDown}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search />
+                </InputAdornment>
+              ),
+              endAdornment: search && (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={handleClearSearch}>
+                    <Clear />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            sx={{ width: 250 }}
+          />
           <FilterDialog owner={owner} repo={selectedRepo} onApplyFilters={handleApplyFilters} />
           <Button
             variant="outlined"
