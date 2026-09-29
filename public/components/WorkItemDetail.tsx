@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-import { Avatar, Box, Button, Chip, CircularProgress, Divider, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
-import { ArrowBack, BugReport, Edit, FolderOpen, Save, TaskAlt } from "@mui/icons-material";
+import { Avatar, Box, Button, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, Divider, IconButton, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
+import { ArrowBack, BugReport, Edit, FolderOpen, Info, Save, TaskAlt, PlayCircle, TravelExplore } from "@mui/icons-material";
 import { type WorkItem } from "../../src/shared/workItems";
 import { AIAssistantPanel } from "./AIAssistantPanel";
-import { AgentRunPanel } from "./AgentRunPanel";
+import { AgentRunPanel, useAgentRun } from "./AgentRunPanel";
+import { Alert } from "@mui/material";
 
 interface WorkItemDetailProps {
   workItem: WorkItem | null;
@@ -67,6 +68,16 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   const [updatingPriority, setUpdatingPriority] = useState(false);
   const [statusError, setStatusError] = useState<string>("");
   const [priorityError, setPriorityError] = useState<string>("");
+  const [labelsDialogOpen, setLabelsDialogOpen] = useState(false);
+
+  // Agent run hook for header buttons
+  const { handleStart, handleScope, starting, scoping, error: agentError } = useAgentRun({
+    owner,
+    repo,
+    issueNumber: workItem?.number || 0,
+    issueType: workItem?.labels.type,
+    actionableLabel: workItem?.labels.actionable,
+  });
 
   // Fetch repository README when component mounts or repo changes
   useEffect(() => {
@@ -137,6 +148,10 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   const epicSlug = workItem.labels.epic;
   const featureSlug = workItem.labels.feature;
   const taskSlug = workItem.labels.task;
+  const actionableLabel = workItem.labels.actionable;
+  
+  // Debug logging for button visibility
+  console.log("WorkItemDetail - type:", type, "actionableLabel:", actionableLabel, "labels:", workItem.labels);
 
   // Prepare parent epic and feature data in the format expected by AIAssistantPanel
   const foundEpic = epicSlug ? allEpics.find(e => e.slug === epicSlug) : undefined;
@@ -259,9 +274,20 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
     }
   }, [workItem, owner, repo, priority]);
 
+  // Debug: log task button conditions
+  if (workItem?.labels.type === "task") {
+    console.log("WorkItemDetail - Task detected:", {
+      type: workItem.labels.type,
+      actionableLabel: workItem.labels.actionable,
+      allLabels: workItem.labels
+    });
+    console.log("WorkItemDetail - Scope button will show:", !!(workItem.labels.actionable && workItem.labels.actionable !== "ready" && workItem.labels.actionable !== "implemented"));
+    console.log("WorkItemDetail - Implement button will show:", workItem.labels.actionable === "ready");
+  }
+
   return (
     <Box>
-      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3, flexWrap: "wrap" }}>
         <Button startIcon={<ArrowBack />} variant="outlined" onClick={onBack}>
           Back to hierarchy
         </Button>
@@ -282,6 +308,32 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
             Edit
           </Button>
         )}
+        {/* Scope and Implement buttons for task issues */}
+        {type === "task" && (
+          <>
+            {actionableLabel && actionableLabel !== "ready" && actionableLabel !== "implemented" && (
+              <Button
+                variant="contained"
+                startIcon={scoping ? <CircularProgress size={16} color="inherit" /> : <TravelExplore />}
+                disabled={scoping}
+                onClick={() => void handleScope()}
+                color="secondary"
+              >
+                {scoping ? "Scoping..." : "Scope"}
+              </Button>
+            )}
+            {actionableLabel === "ready" && (
+              <Button
+                variant="contained"
+                startIcon={starting ? <CircularProgress size={16} color="inherit" /> : <PlayCircle />}
+                disabled={starting}
+                onClick={() => void handleStart()}
+              >
+                {starting ? "Running..." : "Implement"}
+              </Button>
+            )}
+          </>
+        )}
         <Chip
           icon={getTypeIcon(type)}
           label={getTypeLabel(type)}
@@ -289,6 +341,13 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
           sx={{ borderColor: "divider", color: "text.secondary" }}
         />
       </Stack>
+
+      {/* Agent error alert (shared with panel) */}
+      {agentError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {agentError}
+        </Alert>
+      )}
 
       <Stack direction={{ xs: "column", lg: "row" }} spacing={3} alignItems="flex-start">
         <Paper variant="outlined" sx={{ p: 3, borderColor: "divider", flex: 1, width: "100%" }}>
@@ -358,15 +417,16 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
                   </TextField>
                 </Box>
                 
-                {/* Other labels as chips */}
-                {epicSlug && (
-                  <Chip label={`epic: ${epicSlug}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
-                )}
-                {featureSlug && (
-                  <Chip label={`feature: ${featureSlug}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
-                )}
-                {taskSlug && (
-                  <Chip label={`task: ${taskSlug}`} size="small" variant="outlined" sx={{ height: 22, borderColor: "divider", color: "text.secondary" }} />
+                {/* Other labels - moved to dialog to save space */}
+                {(epicSlug || featureSlug || taskSlug) && (
+                  <IconButton
+                    size="small"
+                    onClick={() => setLabelsDialogOpen(true)}
+                    title="View hierarchy labels"
+                    sx={{ height: 22, width: 22, borderColor: "divider", color: "text.secondary" }}
+                  >
+                    <Info fontSize="small" />
+                  </IconButton>
                 )}
               </Stack>
             </Box>
@@ -453,18 +513,35 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
           </Box>
         </Paper>
 
+        {/* Labels Dialog */}
+        <Dialog open={labelsDialogOpen} onClose={() => setLabelsDialogOpen(false)}>
+          <DialogTitle>Hierarchy Labels</DialogTitle>
+          <DialogContent>
+            <Stack direction="column" spacing={1} sx={{ pt: 1 }}>
+              {epicSlug && (
+                <Chip label={`epic: ${epicSlug}`} size="small" variant="outlined" sx={{ borderColor: "divider", color: "text.secondary" }} />
+              )}
+              {featureSlug && (
+                <Chip label={`feature: ${featureSlug}`} size="small" variant="outlined" sx={{ borderColor: "divider", color: "text.secondary" }} />
+              )}
+              {taskSlug && (
+                <Chip label={`task: ${taskSlug}`} size="small" variant="outlined" sx={{ borderColor: "divider", color: "text.secondary" }} />
+              )}
+            </Stack>
+          </DialogContent>
+        </Dialog>
+
         {/* AI Assistant Panel - on the right side */}
         <Box sx={{ width: { lg: 360 }, flexShrink: 0 }}>
           <Stack spacing={2}>
-            {type === "task" && (
-              <AgentRunPanel
-                owner={owner}
-                repo={repo}
-                issueNumber={workItem.number}
-                issueType={type}
-                actionableLabel={workItem.labels.actionable}
-              />
-            )}
+            {/* AgentRunPanel now rendered for all work item types */}
+            <AgentRunPanel
+              owner={owner}
+              repo={repo}
+              issueNumber={workItem.number}
+              issueType={type}
+              actionableLabel={actionableLabel}
+            />
             <AIAssistantPanel
             key={`ai-assistant-${workItem.number}`}
             description={isEditing ? editBody : (workItem.body || "")}

@@ -5,6 +5,7 @@ import {
 } from "@mui/material";
 import { PlayCircle, SmartToy, OpenInNew, HelpOutline, TravelExplore } from "@mui/icons-material";
 
+// --- Types ---
 export interface AgentRunInfo {
   runId: string;
   state: "running" | "done" | "rejected" | "failed";
@@ -40,7 +41,13 @@ interface AgentRunStatusResponse {
   error?: string;
 }
 
-interface AgentRunPanelProps {
+interface ScopingRunResponse {
+  run: ScopingRunInfo | null;
+  error?: string;
+}
+
+// --- Hook ---
+interface UseAgentRunProps {
   owner: string;
   repo: string;
   issueNumber: number;
@@ -48,20 +55,34 @@ interface AgentRunPanelProps {
   actionableLabel?: string;
 }
 
-function stateLabel(state: AgentRunInfo["state"]): string {
-  switch (state) {
-    case "running":
-      return "Running";
-    case "done":
-      return "Done — draft PR opened";
-    case "rejected":
-      return "Rejected — questions posted";
-    default:
-      return "Failed";
-  }
+export interface UseAgentRunReturn {
+  // State
+  status: AgentRunStatusResponse | null;
+  loading: boolean;
+  starting: boolean;
+  scoping: boolean;
+  error: string;
+  scopingRun: ScopingRunInfo | null;
+  answers: string[];
+  submittingAnswers: boolean;
+  
+  // Computed
+  canImplement: boolean;
+  canScope: boolean;
+  isRunning: boolean;
+  globalLimitReached: boolean;
+  
+  // Handlers
+  handleStart: () => Promise<void>;
+  handleScope: () => Promise<void>;
+  handleSubmitAnswers: () => Promise<void>;
+  setAnswers: React.Dispatch<React.SetStateAction<string[]>>;
+  
+  // Refresh
+  refreshStatus: () => Promise<void>;
 }
 
-export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableLabel }: AgentRunPanelProps): React.JSX.Element {
+export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLabel }: UseAgentRunProps): UseAgentRunReturn {
   const [status, setStatus] = useState<AgentRunStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -91,7 +112,7 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
       const response = await fetch(
         `/api/repos/${encodeURIComponent(repo)}/issues/${issueNumber}/scoping-run?owner=${encodeURIComponent(owner)}`
       );
-      const body = (await response.json()) as { run: ScopingRunInfo | null; error?: string };
+      const body = (await response.json()) as ScopingRunResponse;
       if (!response.ok) throw new Error(body.error || "Could not load scoping run status");
       return body.run || null;
     } catch (fetchError) {
@@ -99,6 +120,16 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
       return null;
     }
   }, [owner, repo, issueNumber]);
+
+  const refreshStatus = useCallback(async (): Promise<void> => {
+    const body = await fetchStatus();
+    if (body) {
+      setStatus(body);
+      setError("");
+      const questionCount = body.questions.length;
+      setAnswers((prev) => (prev.length === questionCount ? prev : Array(questionCount).fill("")));
+    }
+  }, [fetchStatus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,6 +181,13 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
     !status?.eligibility.inProgress &&
     status?.run?.state !== "running";
 
+  const canScope =
+    Boolean(issueType === "task") &&
+    Boolean(actionableLabel) &&
+    actionableLabel !== "ready" &&
+    actionableLabel !== "implemented" &&
+    scopingRun?.state !== "running";
+
   const handleStart = useCallback(async () => {
     setStarting(true);
     setError("");
@@ -162,14 +200,13 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
       if (!response.ok) {
         throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not start agent run");
       }
-      const refreshed = await fetchStatus();
-      if (refreshed) setStatus(refreshed);
+      await refreshStatus();
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : String(startError));
     } finally {
       setStarting(false);
     }
-  }, [owner, repo, issueNumber, fetchStatus]);
+  }, [owner, repo, issueNumber, refreshStatus]);
 
   const handleSubmitAnswers = useCallback(async () => {
     setSubmittingAnswers(true);
@@ -185,23 +222,14 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
       );
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Could not submit answers");
-      const refreshed = await fetchStatus();
-      if (refreshed) {
-        setStatus(refreshed);
-        setAnswers(Array(refreshed.questions.length).fill(""));
-      }
+      await refreshStatus();
+      setAnswers(Array(status?.questions.length || 0).fill(""));
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {
       setSubmittingAnswers(false);
     }
-  }, [owner, repo, issueNumber, answers, fetchStatus]);
-
-  const canScope =
-    Boolean(issueType === "task") &&
-    Boolean(actionableLabel) &&
-    actionableLabel !== "ready" &&
-    scopingRun?.state !== "running";
+  }, [owner, repo, issueNumber, answers, refreshStatus, status?.questions.length]);
 
   const handleScope = useCallback(async () => {
     setScoping(true);
@@ -223,6 +251,73 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
     }
   }, [owner, repo, issueNumber]);
 
+  const run = status?.run || null;
+  const isRunning = run?.state === "running";
+  const globalLimitReached = (status?.concurrency.activeRuns || 0) >= (status?.concurrency.maxRuns || 2);
+
+  return {
+    status,
+    loading,
+    starting,
+    scoping,
+    error,
+    scopingRun,
+    answers,
+    submittingAnswers,
+    canImplement,
+    canScope,
+    isRunning,
+    globalLimitReached,
+    handleStart,
+    handleScope,
+    handleSubmitAnswers,
+    setAnswers,
+    refreshStatus,
+  };
+}
+
+// --- Component ---
+interface AgentRunPanelProps {
+  owner: string;
+  repo: string;
+  issueNumber: number;
+  issueType?: string;
+  actionableLabel?: string;
+}
+
+function stateLabel(state: AgentRunInfo["state"]): string {
+  switch (state) {
+    case "running":
+      return "Running";
+    case "done":
+      return "Done — draft PR opened";
+    case "rejected":
+      return "Rejected — questions posted";
+    default:
+      return "Failed";
+  }
+}
+
+export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableLabel }: AgentRunPanelProps): React.JSX.Element {
+  const {
+    status,
+    loading,
+    starting,
+    scoping,
+    error,
+    scopingRun,
+    answers,
+    submittingAnswers,
+    canImplement,
+    canScope,
+    isRunning,
+    globalLimitReached,
+    handleStart,
+    handleScope,
+    handleSubmitAnswers,
+    setAnswers,
+  } = useAgentRun({ owner, repo, issueNumber, issueType, actionableLabel });
+
   if (loading) {
     return (
       <Paper variant="outlined" sx={{ p: 2, borderColor: "divider" }}>
@@ -236,8 +331,6 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
 
   const run = status?.run || null;
   const questions = status?.questions || [];
-  const isRunning = run?.state === "running";
-  const globalLimitReached = (status?.concurrency.activeRuns || 0) >= (status?.concurrency.maxRuns || 2);
 
   return (
     <Paper variant="outlined" sx={{ p: 2, borderColor: "divider" }}>
@@ -376,15 +469,17 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
         </Box>
       )}
 
-      <Button
-        variant="contained"
-        startIcon={isRunning ? <CircularProgress size={16} color="inherit" /> : <PlayCircle />}
-        disabled={!canImplement || starting || globalLimitReached}
-        onClick={() => void handleStart()}
-        sx={{ mt: questions.length || run ? 1 : 0 }}
-      >
-        {isRunning ? "Agent running…" : starting ? "Starting…" : "Implement"}
-      </Button>
+      {issueType === "task" && (
+        <Button
+          variant="contained"
+          startIcon={isRunning ? <CircularProgress size={16} color="inherit" /> : <PlayCircle />}
+          disabled={!canImplement || starting || globalLimitReached}
+          onClick={() => void handleStart()}
+          sx={{ mt: questions.length || run ? 1 : 0 }}
+        >
+          {isRunning ? "Agent running…" : starting ? "Starting…" : "Implement"}
+        </Button>
+      )}
 
       {globalLimitReached && !isRunning && (
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>

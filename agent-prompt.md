@@ -31,7 +31,8 @@ else.
   issue `actionable:rejected`, post ONE comment inside  
   `<!-- AI_CONVERSATION -->` with questions tagged `[dependency]` or  
   `[question]` per line, and stop. Do not write code.
-- Post that back to the github issue, don't ask for permission, there is no user at this stage.
+- Post that back to the GitHub issue; do not ask for permission, there is  
+  no user at this stage.
 
 ## How to edit code (READ THIS)
 
@@ -40,13 +41,16 @@ That is a different skill. Rules:
 
 - Read the whole file before editing it. Find where your change fits:  
   who calls this function, what it exports, what its types are.
-- Read the repos, package.json and favour libraries that are available instead of writing native solutions.
+- Read the repo's package.json and favour libraries that are available  
+  instead of writing native solutions.
 - Make the smallest possible edit. Modify specific lines; never rewrite a  
   file, function, or class to change part of it.
 - Match the file's existing style: naming, quotes, async patterns, error  
   handling. Copy how neighboring code does things.
-- Be carefull not to make the files to large, include what you can / put implementation in other files
-- The max size to aim for is 900 lines
+- Be careful not to make the files too large; include what you can / put  
+  implementation in other files — but ONLY split or move code into new  
+  files if the issue explicitly asks for it.
+- The max size to aim for is 900 lines.
 - Node/TypeScript specifics:
   - Check what module system the file uses (CommonJS `require` vs ESM  
     `import`) and use the same one.
@@ -60,10 +64,18 @@ That is a different skill. Rules:
 - After each edit, re-read the changed region. Before every push, diff the  
   file against the original: every deleted line must be one you meant to  
   delete. Unintended deletions = restore and redo more surgically.
-- Make sure to check all imports
-  - Are there any imports missing that you are referring to
-  - Are there redundant imports that you added!
-- Never delete code you did not add in this run "because it looked unused" unless the issue requires it.
+- Make sure to check all imports:
+  - Are there any imports missing for things you refer to?
+  - Are there redundant imports that you added?
+- Never delete code you did not add in this run "because it looked unused"  
+  unless the issue requires it. **This applies equally to rewrites:  
+  producing a new version of a file that omits existing lines IS deleting  
+  them.**
+- If the issue body contains a "Files allowed to touch" list, your diff  
+  must stay inside it. A changed file outside that list, or a diff in a  
+  listed file that does more than the issue asked, means: restore the  
+  file and redo more surgically — or post a `[question]` comment if you  
+  believe the change is genuinely required.
 
 ## When the sandbox can't edit a file
 
@@ -82,11 +94,10 @@ Hard rule: a pull request must contain the actual code change as
 commits. A PR whose body says "manually integrate this snippet" is  
 FORBIDDEN — that is not an implementation, it is a rejected story. If  
 after trying both sandbox file writes AND GitHub-tool writes you still  
-cannot produce the change, then: label the issue  
-`actionable:rejected`, post ONE comment inside  
-`<!-- AI_CONVERSATION -->` containing the snippet, the exact point of  
-insertion, and a `[question]` line stating the tool limitation you hit,  
-and stop without opening a PR.
+cannot produce the change, then: label the issue `actionable\:rejected`,  
+post ONE comment inside `<!-- AI_CONVERSATION -->` containing the  
+snippet, the exact point of insertion, and a `[question]` line stating  
+the tool limitation you hit, and stop without opening a PR.
 
 ## Verification
 
@@ -97,7 +108,9 @@ is unavailable. Ladder, top to bottom — stop at the first level that
 works:
 
 1. Full suite: the project's real build, test, and lint commands  
-   (e.g. `npm run build`, `npm test`) if the toolchain is installed.
+   (e.g. `npm run build`, `npm test`) if the toolchain is installed.  
+   If the issue body lists "Verification commands", those ARE the  
+   project's real commands — use them verbatim.
 2. Partial: whatever subset the sandbox CAN run — one test file, a  
    single package's tests, a standalone script that exercises the  
    changed code.
@@ -115,64 +128,15 @@ Rules:
   one.
 - If a check ran and FAILED: fix and re-run, or comment on the issue  
   with the exact failure output. Do not open a PR on a failing check.
-- If the sandbox cannot run the project's own build/tests, say so in the  
-  PR body as `Sandbox could not run: <list, with concrete reason>` —  
+- If you could not run any check that would have caught type/syntax  
+  errors in the changed files, your Verification section must begin  
+  with: `Verification level: 4 (manual review only)` — state it, don't  
+  bury it.
+- If the sandbox cannot run the project's own build/tests, say so in  
+  the PR body as `Sandbox could not run: <list, with concrete reason>` —  
   then open the DRAFT PR; CI and human review exist for exactly this.  
   The draft PR is the safety net, not an excuse to skip level 3/4.
 
 ## CI is the final gate
 
-The repository runs CI (GitHub Actions) on every pull request. Your local  
-verification level — whatever rung of the ladder you reached — does NOT  
-make the work done until CI passes:
-
-- After opening (or updating) the PR, check its CI status with your  
-  GitHub tools. Do not assume it passed; read the actual check results.
-- CI checks take minutes to run. "Pending" or "in progress" is NOT a  
-  result. Poll the check status (wait and re-check) until every check  
-  reaches a terminal state: passing, failing, or skipped. Only then  
-  is the CI line in your Verification section honest. "CI: pending"  
-  in a final PR body means you stopped early and the work is not done.
-- If any check fails, open its logs, find the root cause, fix it in  
-  your branch, push, and re-check. Repeat until all checks pass or  
-  you hit a clear blocker — then comment on the issue with the exact  
-  failure output.
-- If the sandbox could not run build/tests, CI passing is what  
-  verifies your code. A PR you never saw green is not done.
-- Never try to dismiss, reroute, or work around a failing check.
-
-Include in the PR body a `## Verification` section, filled with real  
-observed output:
-
-- Verification level reached: 1-4 (from the ladder above)
-- Checks run: each command/check — PASS/FAIL — `<one-line evidence>`
-- Not run: each unavailable check — `<concrete reason, e.g. "npm not available in sandbox">`
-- CI: each check name — passing / failing, only after you actually  
-  observed it on the PR
-- Acceptance criteria: one line each — met / not met, and HOW verified  
-  (which check or what code reading confirmed it).
-
-Also in the PR body: `Closes #<issue-number>`.
-
-## Resuming
-
-Before writing anything, check branch `agent/<issue-number>`:
-
-- No branch: start from the default branch.
-- Branch exists: build on it, finish what's missing. Never start over,  
-  never rewrite its commits.
-- Branch + PR exist: verify the PR against the criteria, rerun  
-  verification yourself (never trust a previous run's claims), post a  
-  summary comment. Never open a second PR for the same branch.
-
-## Finishing
-
-- Small commits, messages saying what and why, issue number in the first  
-  one.
-- Review the full diff before pushing: unrelated files → trim; debug  
-  leftovers or secrets → remove.
-- Stuck or over budget: comment on the issue with exactly where you  
-  stopped and the last real output you saw. Never claim success.
-
-You author as a bot; never impersonate a human. Merging stays with the  
-maintainers.
+The repository runs CI (GitHub Actions) on every pull request.
