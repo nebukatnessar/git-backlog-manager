@@ -70,6 +70,11 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
   const [priorityError, setPriorityError] = useState<string>("");
   const [labelsDialogOpen, setLabelsDialogOpen] = useState(false);
 
+  // State for stack rank field
+  const [stackRankValue, setStackRankValue] = useState<string>("");
+  const [updatingStackRank, setUpdatingStackRank] = useState(false);
+  const [stackRankError, setStackRankError] = useState<string>("");
+
   // Agent run hook for header buttons
   const { handleStart, handleScope, starting, scoping, error: agentError } = useAgentRun({
     owner,
@@ -122,13 +127,17 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
     void fetchConversation();
   }, [workItem, owner, repo]);
 
-  // Initialize label dropdowns when workItem changes
+  // Initialize label dropdowns and stack rank when workItem changes
   useEffect(() => {
     if (workItem) {
       const rawStatus = workItem.labels.status || "";
       const rawPriority = workItem.labels.priority || "";
       setStatusValue(rawStatus.startsWith("status:") ? rawStatus.substring(7) : rawStatus);
       setPriorityValue(rawPriority.startsWith("priority:") ? rawPriority.substring(9) : rawPriority);
+      
+      // Initialize stack rank from the stack-rank label
+      const rawStackRank = workItem.labels["stack-rank"] || "";
+      setStackRankValue(rawStackRank.startsWith("stack-rank:") ? rawStackRank.substring(11) : rawStackRank);
     }
   }, [workItem]);
 
@@ -274,6 +283,76 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
     }
   }, [workItem, owner, repo, priority]);
 
+  // Handle stack rank field change
+  const handleStackRankChange = useCallback(async (newValue: string) => {
+    if (!workItem || !owner || !repo) return;
+    
+    // Validate input: must be a positive integer
+    if (newValue === "") {
+      // Empty input: clear the field and remove the label
+      setUpdatingStackRank(true);
+      setStackRankError("");
+      
+      try {
+        // Optimistically update the UI
+        const previousValue = stackRankValue;
+        setStackRankValue("");
+        
+        // Call the API to remove the stack-rank label
+        const label = `stack-rank:`;
+        const response = await fetch(
+          `/api/repos/${encodeURIComponent(repo)}/issues/${workItem.number}/label/${encodeURIComponent(label)}?owner=${encodeURIComponent(owner)}`,
+          { method: "POST" }
+        );
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Failed to update stack rank");
+        }
+      } catch (error) {
+        // Revert the UI on error
+        setStackRankValue(stackRankValue);
+        setStackRankError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setUpdatingStackRank(false);
+      }
+      return;
+    }
+    
+    const numericValue = parseInt(newValue, 10);
+    if (isNaN(numericValue) || numericValue < 0 || !Number.isInteger(numericValue)) {
+      setStackRankError("Stack rank must be a positive integer");
+      return;
+    }
+    
+    setUpdatingStackRank(true);
+    setStackRankError("");
+    
+    try {
+      // Optimistically update the UI
+      const previousValue = stackRankValue;
+      setStackRankValue(newValue);
+      
+      // Call the API to update the label
+      const label = `stack-rank:${numericValue}`;
+      const response = await fetch(
+        `/api/repos/${encodeURIComponent(repo)}/issues/${workItem.number}/label/${encodeURIComponent(label)}?owner=${encodeURIComponent(owner)}`,
+        { method: "POST" }
+      );
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update stack rank");
+      }
+    } catch (error) {
+      // Revert the UI on error
+      setStackRankValue(stackRankValue);
+      setStackRankError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setUpdatingStackRank(false);
+    }
+  }, [workItem, owner, repo, stackRankValue]);
+
   // Debug: log task button conditions
   if (workItem?.labels.type === "task") {
     console.log("WorkItemDetail - Task detected:", {
@@ -415,6 +494,31 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
                       </MenuItem>
                     ))}
                   </TextField>
+                </Box>
+
+                {/* Stack rank field */}
+                <Box sx={{ minWidth: 120 }}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Stack rank"
+                    type="number"
+                    inputMode="numeric"
+                    value={stackRankValue}
+                    onChange={(e) => setStackRankValue(e.target.value)}
+                    onBlur={() => handleStackRankChange(stackRankValue)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleStackRankChange(stackRankValue);
+                      }
+                    }}
+                    disabled={updatingStackRank}
+                    error={!!stackRankError}
+                    helperText={stackRankError}
+                    InputProps={{
+                      startAdornment: updatingStackRank ? <CircularProgress size={20} /> : null,
+                    }}
+                  />
                 </Box>
                 
                 {/* Other labels - moved to dialog to save space */}
