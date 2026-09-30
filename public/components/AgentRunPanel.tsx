@@ -214,9 +214,6 @@ export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLab
 
   const canScope =
     Boolean(issueType === "task") &&
-    Boolean(actionableLabel) &&
-    actionableLabel !== "ready" &&
-    actionableLabel !== "implemented" &&
     scopingRun?.state !== "running";
 
   const handleStart = useCallback(async () => {
