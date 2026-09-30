@@ -405,8 +405,8 @@ export function WorkItemDetail({
             Edit
           </Button>
         )}
-        {/* Scope and Implement buttons for task issues */}
-        {type === "task" && (
+        {/* Scope and Implement buttons for task and bug issues */}
+        {(type === "task" || type === "bug") && (
           <>
             {actionableLabel && actionableLabel !== "ready" && actionableLabel !== "implemented" && (
               <Button
