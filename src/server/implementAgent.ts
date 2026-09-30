@@ -83,7 +83,7 @@ export function isEligibleForImplementation(issue: GitHubIssue): boolean {
   const labels = (issue.labels || []).map((label) =>
     typeof label === "string" ? label.toLowerCase() : (label.name || "").toLowerCase(),
   );
-  return labels.includes("type:task") && labels.includes("actionable:ready");
+  return (labels.includes("type:task") || labels.includes("type:bug")) && labels.includes("actionable:ready");
 }
 
 export function hasInProgressLabel(issue: GitHubIssue): boolean {
@@ -178,7 +178,7 @@ export async function startAgentRun(
 ): Promise<AgentRun> {
   const issue = await fetchIssue(githubPat, owner, repo, issueNumber);
   if (!isEligibleForImplementation(issue)) {
-    throw new Error("Issue is not eligible for implementation: it needs labels type:task and actionable:ready.");
+    throw new Error("Issue is not eligible for implementation: it needs labels type:task or type:bug and actionable:ready.");
   }
   if (hasInProgressLabel(issue)) {
     throw new Error("Issue already has an agent run in progress.");
@@ -284,7 +284,3 @@ export function reapExpiredRuns(): void {
     run.finishedAt = now;
   }
 }
-
-
-
-

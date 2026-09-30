@@ -137,7 +137,7 @@ export function registerAgentRoutes(app: Express, projectDir: string): void {
     try {
       const issue = await fetchIssueById(owner, repo, issueNumber, token);
       if (!isEligibleForImplementation(issue)) {
-        return res.status(409).json({ error: "Issue needs both type:task and actionable:ready labels to be implemented." });
+        return res.status(409).json({ error: "Issue needs both type:task or type:bug and actionable:ready labels to be implemented." });
       }
       if (hasInProgressLabel(issue)) {
         if (isRunActiveForIssue(owner, repo, issueNumber)) {
@@ -194,7 +194,7 @@ export function registerAgentRoutes(app: Express, projectDir: string): void {
       return res.json({
         run: run || null,
         eligibility: {
-          isTask: (issue.labels || []).some((label) => (typeof label === "string" ? label : label.name)?.toLowerCase() === "type:task"),
+          isTask: (issue.labels || []).some((label) => (typeof label === "string" ? label : label.name)?.toLowerCase() === "type:task" || (typeof label === "string" ? label : label.name)?.toLowerCase() === "type:bug"),
           actionable: (issue.labels || []).map((label) => (typeof label === "string" ? label : label.name)).find((label) => String(label).toLowerCase().startsWith("actionable:")) || "",
           inProgress: hasInProgressLabel(issue),
         },
@@ -226,8 +226,8 @@ export function registerAgentRoutes(app: Express, projectDir: string): void {
       const labels = (issue.labels || []).map((label) =>
         typeof label === "string" ? label.toLowerCase() : (label.name || "").toLowerCase(),
       );
-      if (!labels.includes("type:task")) {
-        return res.status(409).json({ error: "Only task issues can be scoped by the agent." });
+      if (!labels.includes("type:task") && !labels.includes("type:bug")) {
+        return res.status(409).json({ error: "Only task or bug issues can be scoped by the agent." });
       }
       const actionable = labels.find((label) => label.startsWith("actionable:"));
       if (actionable === "actionable:ready") {
