@@ -1,11 +1,8 @@
 import React, { createContext, useContext, useReducer, useMemo, ReactNode } from "react";
 import {
   type WorkItem,
-  type ParsedLabels,
-  parseNamespacedLabels,
-  getStackRankFromLabels,
+  type WorkItemHierarchy,
   buildWorkItemHierarchy,
-  type ApiData,
   type GitHubIssue,
   mapIssue,
 } from "../../src/shared/workItems";
@@ -13,7 +10,7 @@ import {
 // Define the shape of the store state
 interface WorkItemStoreState {
   issues: Record<number, WorkItem>; // Keyed by issue number
-  hierarchy: ApiData["hierarchy"] | null;
+  hierarchy: WorkItemHierarchy | null;
 }
 
 // Define actions for the reducer
@@ -21,11 +18,23 @@ type WorkItemAction =
   | { type: "SEED"; payload: GitHubIssue[] }
   | { type: "APPLY_LABEL_CHANGE"; payload: { issueNumber: number; namespace: string; value: string } }
   | { type: "APPLY_BODY_CHANGE"; payload: { issueNumber: number; body: string } }
-  | { type: "ROLLBACK"; payload: { issueNumber: number; previousLabels: ParsedLabels } };
+  | { type: "ROLLBACK"; payload: { issueNumber: number; previousLabels: Record<string, string> } };
 
 // Helper to recompute derived fields for a work item
 function recomputeWorkItem(issue: GitHubIssue): WorkItem {
   return mapIssue(issue);
+}
+
+// Helper to convert WorkItem to GitHubIssue
+function workItemToGitHubIssue(workItem: WorkItem): GitHubIssue {
+  return {
+    number: workItem.number,
+    title: workItem.title,
+    html_url: workItem.html_url,
+    state: workItem.state,
+    labels: Object.entries(workItem.labels).map(([ns, val]) => `${ns}:${val}`),
+    body: workItem.body,
+  };
 }
 
 // Reducer to handle state transitions
@@ -50,27 +59,24 @@ function workItemReducer(state: WorkItemStoreState, action: WorkItemAction): Wor
       if (!issue) return state;
 
       // Create a new labels object with the updated namespace
-      const updatedLabels: ParsedLabels = {
+      const updatedLabels: Record<string, string> = {
         ...issue.labels,
         [namespace]: value,
       };
 
-      // Recompute the work item with updated labels
-      const updatedGitHubIssue: GitHubIssue = {
+      // Create updated WorkItem first
+      const updatedWorkItem: WorkItem = {
         ...issue,
-        number: issue.number,
-        title: issue.title,
-        html_url: issue.html_url,
-        state: issue.state,
-        labels: Object.entries(updatedLabels).map(([ns, val]) => `${ns}:${val}`),
-        body: issue.body,
+        labels: updatedLabels,
       };
 
+      // Convert to GitHubIssue for recomputation and hierarchy
+      const updatedGitHubIssue = workItemToGitHubIssue(updatedWorkItem);
       const recomputedIssue = recomputeWorkItem(updatedGitHubIssue);
 
-      // Update the hierarchy
+      // Update the hierarchy - convert all WorkItems to GitHubIssues
       const allIssues = Object.values(state.issues).map((i) =>
-        i.number === issueNumber ? updatedGitHubIssue : (i as unknown as GitHubIssue)
+        i.number === issueNumber ? updatedGitHubIssue : workItemToGitHubIssue(i)
       );
       const hierarchy = buildWorkItemHierarchy(allIssues);
 
@@ -89,21 +95,19 @@ function workItemReducer(state: WorkItemStoreState, action: WorkItemAction): Wor
       const issue = state.issues[issueNumber];
       if (!issue) return state;
 
-      const updatedGitHubIssue: GitHubIssue = {
+      // Create updated WorkItem first
+      const updatedWorkItem: WorkItem = {
         ...issue,
-        number: issue.number,
-        title: issue.title,
-        html_url: issue.html_url,
-        state: issue.state,
-        labels: Object.entries(issue.labels).map(([ns, val]) => `${ns}:${val}`),
         body,
       };
 
+      // Convert to GitHubIssue for recomputation and hierarchy
+      const updatedGitHubIssue = workItemToGitHubIssue(updatedWorkItem);
       const updatedIssue = recomputeWorkItem(updatedGitHubIssue);
 
-      // Update the hierarchy
+      // Update the hierarchy - convert all WorkItems to GitHubIssues
       const allIssues = Object.values(state.issues).map((i) =>
-        i.number === issueNumber ? updatedGitHubIssue : (i as unknown as GitHubIssue)
+        i.number === issueNumber ? updatedGitHubIssue : workItemToGitHubIssue(i)
       );
       const hierarchy = buildWorkItemHierarchy(allIssues);
 
@@ -122,22 +126,19 @@ function workItemReducer(state: WorkItemStoreState, action: WorkItemAction): Wor
       const issue = state.issues[issueNumber];
       if (!issue) return state;
 
-      // Revert to previous labels
-      const updatedGitHubIssue: GitHubIssue = {
+      // Revert to previous labels - create updated WorkItem first
+      const updatedWorkItem: WorkItem = {
         ...issue,
-        number: issue.number,
-        title: issue.title,
-        html_url: issue.html_url,
-        state: issue.state,
-        labels: Object.entries(previousLabels).map(([ns, val]) => `${ns}:${val}`),
-        body: issue.body,
+        labels: previousLabels,
       };
 
+      // Convert to GitHubIssue for recomputation and hierarchy
+      const updatedGitHubIssue = workItemToGitHubIssue(updatedWorkItem);
       const recomputedIssue = recomputeWorkItem(updatedGitHubIssue);
 
-      // Update the hierarchy
+      // Update the hierarchy - convert all WorkItems to GitHubIssues
       const allIssues = Object.values(state.issues).map((i) =>
-        i.number === issueNumber ? updatedGitHubIssue : (i as unknown as GitHubIssue)
+        i.number === issueNumber ? updatedGitHubIssue : workItemToGitHubIssue(i)
       );
       const hierarchy = buildWorkItemHierarchy(allIssues);
 
@@ -217,7 +218,7 @@ export function applyBodyChange(issueNumber: number, body: string): WorkItemActi
 
 export function rollbackLabels(
   issueNumber: number,
-  previousLabels: ParsedLabels
+  previousLabels: Record<string, string>
 ): WorkItemAction {
   return { type: "ROLLBACK", payload: { issueNumber, previousLabels } };
 }

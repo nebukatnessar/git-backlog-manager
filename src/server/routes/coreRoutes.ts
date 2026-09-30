@@ -217,12 +217,8 @@ export function registerCoreRoutes(app: Express): void {
       
       // Re-fetch issues to ensure labels are updated
       const updatedIssues = await fetchIssues(owner, repo, state, token);
-      const hierarchy = buildWorkItemHierarchy(updatedIssues);
-      
       return res.json({
-        repository: { owner, repo },
-        totals: { issues: updatedIssues.length, epics: hierarchy.epics.length, bugs: hierarchy.bugs.length },
-        hierarchy,
+        issues: updatedIssues,
       });
     } catch (error) {
       const apiError = error instanceof GitHubApiError ? error : null;

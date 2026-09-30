@@ -210,9 +210,7 @@ function AppContent(): React.JSX.Element {
       const response = await fetch(`/api/issues?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&state=${encodeURIComponent(state)}`);
       const body = await response.json() as { issues?: GitHubIssue[]; error?: string };
       if (!response.ok) throw new Error(body.error || "Could not load work items");
-      if (body.issues) {
-        dispatch(seedIssues(body.issues));
-      }
+      dispatch(seedIssues(body.issues || []));
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : String(requestError)); }
     finally { setLoadingIssues(false); }
   }
@@ -264,9 +262,7 @@ function AppContent(): React.JSX.Element {
       });
       const body = await response.json() as { issues?: GitHubIssue[]; error?: string };
       if (!response.ok) throw new Error(body.error || "Could not create work item");
-      if (body.issues) {
-        dispatch(seedIssues(body.issues));
-      }
+      dispatch(seedIssues(body.issues || []));
       setCreateTarget(null);
     } catch (requestError) {
       setCreateError(requestError instanceof Error ? requestError.message : String(requestError));
