@@ -52,6 +52,7 @@ interface RepositoryContentProps {
   scopingIssue?: number | null;
   onStatusChange?: (issueNumber: number, status: string) => Promise<void>;
   onPriorityChange?: (issueNumber: number, priority: string) => Promise<void>;
+  onRunFinished?: () => Promise<void>;
 }
 
 // Define types for the filter state
@@ -179,6 +180,7 @@ export function RepositoryContent({
   scopingIssue,
   onStatusChange,
   onPriorityChange,
+  onRunFinished,
 }: RepositoryContentProps): React.JSX.Element {
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [filters, setFilters] = useState<FilterState>({
@@ -316,6 +318,7 @@ export function RepositoryContent({
             }))) || []}
             onStatusChange={onStatusChange}
             onPriorityChange={onPriorityChange}
+            onRunFinished={onRunFinished}
           />
         ) : (
           <Typography color="text.secondary" sx={{ py: 4 }}>
