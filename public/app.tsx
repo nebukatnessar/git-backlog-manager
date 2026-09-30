@@ -357,6 +357,12 @@ function AppContent(): React.JSX.Element {
     setWorkItemId(undefined);
   }, []);
 
+  const handleRunFinished = useCallback(async () => {
+    if (selectedRepo) {
+      await fetchRepositoryIssues(selectedRepo);
+    }
+  }, [selectedRepo]);
+
   const handleImplementIssue = useCallback(async (issueNumber: number) => {
     setImplementingIssue(issueNumber);
     try {
@@ -605,6 +611,7 @@ function AppContent(): React.JSX.Element {
               scopingIssue={scopingIssue}
               onStatusChange={handleStatusChange}
               onPriorityChange={handlePriorityChange}
+              onRunFinished={handleRunFinished}
             />
           )}
         </Box>
