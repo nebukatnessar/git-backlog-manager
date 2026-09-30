@@ -12,6 +12,11 @@ interface IssueLinkProps {
   scopingIssue?: number | null;
 }
 
+// Helper function to check if a work item type is agentable (task or bug)
+function isAgentable(type: string | undefined): boolean {
+  return type === "task" || type === "bug";
+}
+
 export function IssueLink({ issue, onClick, onImplement, implementingIssue, onScope, scopingIssue }: IssueLinkProps): React.JSX.Element {
   const handleClick = (e: React.MouseEvent) => {
     if (onClick) {
@@ -74,8 +79,8 @@ export function IssueLink({ issue, onClick, onImplement, implementingIssue, onSc
           priority: {issue.labels.priority}
         </Typography>
       )}
-      {onImplement && issue.labels.type === "task" && issue.labels.actionable === "ready" && (
-        <Tooltip title={implementingIssue === issue.number ? "Agent run in progress" : "Run the implement agent on this task"}>
+      {onImplement && isAgentable(issue.labels.type) && issue.labels.actionable === "ready" && (
+        <Tooltip title={implementingIssue === issue.number ? "Agent run in progress" : "Run the implement agent on this task or bug"}>
           <Button
             size="small"
             variant="outlined"
@@ -91,8 +96,8 @@ export function IssueLink({ issue, onClick, onImplement, implementingIssue, onSc
           </Button>
         </Tooltip>
       )}
-      {onScope && issue.labels.type === "task" && issue.labels.actionable && issue.labels.actionable !== "ready" && issue.labels.actionable !== "implemented" && (
-        <Tooltip title={scopingIssue === issue.number ? "Scoping agent in progress" : "Let the scoping agent decide if this task is actionable"}>
+      {onScope && isAgentable(issue.labels.type) && issue.labels.actionable && issue.labels.actionable !== "ready" && issue.labels.actionable !== "implemented" && (
+        <Tooltip title={scopingIssue === issue.number ? "Scoping agent in progress" : "Let the scoping agent decide if this task or bug is actionable"}>
           <Button
             size="small"
             variant="outlined"
