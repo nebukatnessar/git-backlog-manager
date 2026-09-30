@@ -17,6 +17,7 @@ interface WorkItemDetailProps {
   allFeatures?: Array<{ slug: string; title: string; body?: string; epicSlug?: string }>;
   onStatusChange?: (issueNumber: number, status: string) => Promise<void>;
   onPriorityChange?: (issueNumber: number, priority: string) => Promise<void>;
+  onRunFinished?: () => Promise<void>;
 }
 
 function getTypeIcon(type: string | undefined): React.JSX.Element {
@@ -64,6 +65,7 @@ export function WorkItemDetail({
   allFeatures = [],
   onStatusChange,
   onPriorityChange,
+  onRunFinished,
 }: WorkItemDetailProps): React.JSX.Element {
   const [isEditing, setIsEditing] = useState(false);
   const [editBody, setEditBody] = useState("");
@@ -661,6 +663,7 @@ export function WorkItemDetail({
               issueNumber={workItem.number}
               issueType={type}
               actionableLabel={actionableLabel}
+              onRunFinished={onRunFinished}
             />
             <AIAssistantPanel
             key={`ai-assistant-${workItem.number}`}
