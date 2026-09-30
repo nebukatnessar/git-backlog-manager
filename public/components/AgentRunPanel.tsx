@@ -154,7 +154,7 @@ export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLab
       cancelled = true;
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [fetchStatus, status?.run?.state]);
+  }, [fetchStatus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -173,7 +173,7 @@ export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLab
       cancelled = true;
       clearInterval(timer);
     };
-  }, [fetchScopingRun, scopingRun?.state]);
+  }, [fetchScopingRun]);
 
   const canImplement =
     Boolean(issueType === "task") &&

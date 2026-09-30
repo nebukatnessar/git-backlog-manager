@@ -187,7 +187,8 @@ function normalizeLabelName(label: GitHubLabel | string | undefined): string {
 export function parseNamespacedLabels(labels: GitHubIssue["labels"]): Record<string, string> {
   const parsed: Record<string, string> = {};
 
-  for (const label of labels || []) {
+  const labelsArray = Array.isArray(labels) ? labels : [];
+  for (const label of labelsArray) {
     const name = normalizeLabelName(label).trim().toLowerCase();
     const splitIndex = name.indexOf(":");
 
