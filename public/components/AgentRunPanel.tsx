@@ -207,13 +207,13 @@ export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLab
   }, [scopingRun, onRunFinished]);
 
   const canImplement =
-    Boolean(issueType === "task") &&
+    (issueType === "task" || issueType === "bug") &&
     actionableLabel === "ready" &&
     !status?.eligibility.inProgress &&
     status?.run?.state !== "running";
 
   const canScope =
-    Boolean(issueType === "task") &&
+    (issueType === "task" || issueType === "bug") &&
     Boolean(actionableLabel) &&
     actionableLabel !== "ready" &&
     actionableLabel !== "implemented" &&
@@ -379,16 +379,16 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
 
       {error && <Alert severity="error" sx={{ mb: 1.5 }}>{error}</Alert>}
 
-      {issueType !== "task" && (
+      {issueType !== "task" && issueType !== "bug" && (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          Only task issues can be implemented by the agent.
+          Only task or bug issues can be implemented by the agent.
         </Typography>
       )}
 
-      {issueType === "task" && actionableLabel && actionableLabel !== "ready" && !isRunning && (
+      {(issueType === "task" || issueType === "bug") && actionableLabel && actionableLabel !== "ready" && !isRunning && (
         <Box sx={{ mb: 1.5 }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            This task is <code>actionable:{actionableLabel}</code>. Relabel it <code>actionable:ready</code> to enable implementation — or let the scoping agent decide.
+            This {issueType} is <code>actionable:{actionableLabel}</code>. Relabel it <code>actionable:ready</code> to enable implementation — or let the scoping agent decide.
           </Typography>
           {scopingRun && (
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
@@ -504,7 +504,7 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
         </Box>
       )}
 
-      {issueType === "task" && (
+      {(issueType === "task" || issueType === "bug") && (
         <Button
           variant="contained"
           startIcon={isRunning ? <CircularProgress size={16} color="inherit" /> : <PlayCircle />}
