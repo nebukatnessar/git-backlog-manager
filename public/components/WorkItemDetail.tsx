@@ -15,6 +15,9 @@ interface WorkItemDetailProps {
   onSave: (issueNumber: number, body: string) => Promise<void>;
   allEpics?: Array<{ slug: string; title: string; body?: string }>;
   allFeatures?: Array<{ slug: string; title: string; body?: string; epicSlug?: string }>;
+  onStatusChange?: (issueNumber: number, status: string) => Promise<void>;
+  onPriorityChange?: (issueNumber: number, priority: string) => Promise<void>;
+  onRunFinished?: () => Promise<void>;
 }
 
 function getTypeIcon(type: string | undefined): React.JSX.Element {
@@ -52,7 +55,18 @@ interface ConversationMessage {
 const STATUS_OPTIONS = ["backlog", "in-progress", "removed", "ready-for-review", "approved", "done"] as const;
 const PRIORITY_OPTIONS = ["low", "medium", "high"] as const;
 
-export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics = [], allFeatures = [] }: WorkItemDetailProps): React.JSX.Element {
+export function WorkItemDetail({ 
+  workItem, 
+  owner, 
+  repo, 
+  onBack, 
+  onSave, 
+  allEpics = [], 
+  allFeatures = [],
+  onStatusChange,
+  onPriorityChange,
+  onRunFinished,
+}: WorkItemDetailProps): React.JSX.Element {
   const [isEditing, setIsEditing] = useState(false);
   const [editBody, setEditBody] = useState("");
   const [saving, setSaving] = useState(false);
@@ -256,7 +270,7 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
 
   // Handle status dropdown change
   const handleStatusChange = useCallback(async (newStatus: string) => {
-    if (!workItem || !owner || !repo) return;
+    if (!workItem || !onStatusChange) return;
     
     setUpdatingStatus(true);
     setStatusError("");
@@ -265,17 +279,8 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
       // Optimistically update the UI
       setStatusValue(newStatus);
       
-      // Call the API to update the label
-      const label = `status:${newStatus}`;
-      const response = await fetch(
-        `/api/repos/${encodeURIComponent(repo)}/issues/${workItem.number}/label/${encodeURIComponent(label)}?owner=${encodeURIComponent(owner)}`,
-        { method: "POST" }
-      );
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to update status");
-      }
+      // Call the parent handler to dispatch the action
+      await onStatusChange(workItem.number, newStatus);
     } catch (error) {
       // Revert the UI on error
       setStatusValue(status || "");
@@ -283,11 +288,11 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
     } finally {
       setUpdatingStatus(false);
     }
-  }, [workItem, owner, repo, status]);
+  }, [workItem, onStatusChange, status]);
 
   // Handle priority dropdown change
   const handlePriorityChange = useCallback(async (newPriority: string) => {
-    if (!workItem || !owner || !repo) return;
+    if (!workItem || !onPriorityChange) return;
     
     setUpdatingPriority(true);
     setPriorityError("");
@@ -296,17 +301,8 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
       // Optimistically update the UI
       setPriorityValue(newPriority);
       
-      // Call the API to update the label
-      const label = `priority:${newPriority}`;
-      const response = await fetch(
-        `/api/repos/${encodeURIComponent(repo)}/issues/${workItem.number}/label/${encodeURIComponent(label)}?owner=${encodeURIComponent(owner)}`,
-        { method: "POST" }
-      );
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to update priority");
-      }
+      // Call the parent handler to dispatch the action
+      await onPriorityChange(workItem.number, newPriority);
     } catch (error) {
       // Revert the UI on error
       setPriorityValue(priority || "");
@@ -314,7 +310,77 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
     } finally {
       setUpdatingPriority(false);
     }
-  }, [workItem, owner, repo, priority]);
+  }, [workItem, onPriorityChange, priority]);
+
+  // Handle stack rank field change
+  const handleStackRankChange = useCallback(async (newValue: string) => {
+    if (!workItem || !owner || !repo) return;
+    
+    // Validate input: must be a positive integer
+    if (newValue === "") {
+      // Empty input: clear the field and remove the label
+      setUpdatingStackRank(true);
+      setStackRankError("");
+      
+      try {
+        // Optimistically update the UI
+        const previousValue = stackRankValue;
+        setStackRankValue("");
+        
+        // Call the API to remove the stack-rank label
+        const label = `stack-rank:`;
+        const response = await fetch(
+          `/api/repos/${encodeURIComponent(repo)}/issues/${workItem.number}/label/${encodeURIComponent(label)}?owner=${encodeURIComponent(owner)}`,
+          { method: "POST" }
+        );
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Failed to update stack rank");
+        }
+      } catch (error) {
+        // Revert the UI on error
+        setStackRankValue(stackRankValue);
+        setStackRankError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setUpdatingStackRank(false);
+      }
+      return;
+    }
+    
+    const numericValue = parseInt(newValue, 10);
+    if (isNaN(numericValue) || numericValue < 0 || !Number.isInteger(numericValue)) {
+      setStackRankError("Stack rank must be a positive integer");
+      return;
+    }
+    
+    setUpdatingStackRank(true);
+    setStackRankError("");
+    
+    try {
+      // Optimistically update the UI
+      const previousValue = stackRankValue;
+      setStackRankValue(newValue);
+      
+      // Call the API to update the label
+      const label = `stack-rank:${numericValue}`;
+      const response = await fetch(
+        `/api/repos/${encodeURIComponent(repo)}/issues/${workItem.number}/label/${encodeURIComponent(label)}?owner=${encodeURIComponent(owner)}`,
+        { method: "POST" }
+      );
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update stack rank");
+      }
+    } catch (error) {
+      // Revert the UI on error
+      setStackRankValue(stackRankValue);
+      setStackRankError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setUpdatingStackRank(false);
+    }
+  }, [workItem, owner, repo, stackRankValue]);
 
   // Handle stack rank field change
   const handleStackRankChange = useCallback(async (newValue: string) => {
@@ -666,6 +732,7 @@ export function WorkItemDetail({ workItem, owner, repo, onBack, onSave, allEpics
               issueNumber={workItem.number}
               issueType={type}
               actionableLabel={actionableLabel}
+              onRunFinished={onRunFinished}
             />
             <AIAssistantPanel
             key={`ai-assistant-${workItem.number}`}

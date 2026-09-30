@@ -53,6 +53,7 @@ interface UseAgentRunProps {
   issueNumber: number;
   issueType?: string;
   actionableLabel?: string;
+  onRunFinished?: () => Promise<void>;
 }
 
 export interface UseAgentRunReturn {
@@ -82,7 +83,7 @@ export interface UseAgentRunReturn {
   refreshStatus: () => Promise<void>;
 }
 
-export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLabel }: UseAgentRunProps): UseAgentRunReturn {
+export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLabel, onRunFinished }: UseAgentRunProps): UseAgentRunReturn {
   const [status, setStatus] = useState<AgentRunStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -131,6 +132,20 @@ export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLab
     }
   }, [fetchStatus]);
 
+  // Check if a run just finished and trigger onRunFinished
+  const checkRunFinished = useCallback(async (prevRun: AgentRunInfo | null, currentRun: AgentRunInfo | null) => {
+    if (!onRunFinished) return;
+    
+    // If there was no previous run and now there is a finished run, trigger the callback
+    if (!prevRun && currentRun && (currentRun.state === "done" || currentRun.state === "rejected" || currentRun.state === "failed")) {
+      await onRunFinished();
+    }
+    // If the previous run was running and now it's finished, trigger the callback
+    else if (prevRun?.state === "running" && currentRun && (currentRun.state === "done" || currentRun.state === "rejected" || currentRun.state === "failed")) {
+      await onRunFinished();
+    }
+  }, [onRunFinished]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -175,6 +190,22 @@ export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLab
     };
   }, [fetchScopingRun]);
 
+  // Check for run completion and trigger onRunFinished
+  useEffect(() => {
+    if (status?.run) {
+      void checkRunFinished(null, status.run);
+    }
+  }, [status?.run, checkRunFinished]);
+
+  // Check for scoping run completion and trigger onRunFinished
+  useEffect(() => {
+    if (scopingRun && (scopingRun.state === "done" || scopingRun.state === "rejected" || scopingRun.state === "failed")) {
+      if (onRunFinished) {
+        void onRunFinished();
+      }
+    }
+  }, [scopingRun, onRunFinished]);
+
   const canImplement =
     Boolean(issueType === "task") &&
     actionableLabel === "ready" &&
@@ -183,9 +214,6 @@ export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLab
 
   const canScope =
     Boolean(issueType === "task") &&
-    Boolean(actionableLabel) &&
-    actionableLabel !== "ready" &&
-    actionableLabel !== "implemented" &&
     scopingRun?.state !== "running";
 
   const handleStart = useCallback(async () => {
@@ -224,12 +252,15 @@ export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLab
       if (!response.ok) throw new Error(body.error || "Could not submit answers");
       await refreshStatus();
       setAnswers(Array(status?.questions.length || 0).fill(""));
+      if (onRunFinished) {
+        await onRunFinished();
+      }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {
       setSubmittingAnswers(false);
     }
-  }, [owner, repo, issueNumber, answers, refreshStatus, status?.questions.length]);
+  }, [owner, repo, issueNumber, answers, refreshStatus, status?.questions.length, onRunFinished]);
 
   const handleScope = useCallback(async () => {
     setScoping(true);
@@ -283,6 +314,7 @@ interface AgentRunPanelProps {
   issueNumber: number;
   issueType?: string;
   actionableLabel?: string;
+  onRunFinished?: () => Promise<void>;
 }
 
 function stateLabel(state: AgentRunInfo["state"]): string {
@@ -298,7 +330,7 @@ function stateLabel(state: AgentRunInfo["state"]): string {
   }
 }
 
-export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableLabel }: AgentRunPanelProps): React.JSX.Element {
+export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableLabel, onRunFinished }: AgentRunPanelProps): React.JSX.Element {
   const {
     status,
     loading,
@@ -316,7 +348,7 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
     handleScope,
     handleSubmitAnswers,
     setAnswers,
-  } = useAgentRun({ owner, repo, issueNumber, issueType, actionableLabel });
+  } = useAgentRun({ owner, repo, issueNumber, issueType, actionableLabel, onRunFinished });
 
   if (loading) {
     return (
