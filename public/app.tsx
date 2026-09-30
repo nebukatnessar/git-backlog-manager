@@ -18,10 +18,13 @@ import {
   type WorkItem,
   type WorkItemPriority,
   type WorkItemStatus,
+  type GitHubIssue,
+  mapIssue,
 } from "../src/shared/workItems";
 
 import { RepositorySidebar } from "./components/RepositorySidebar";
 import { RepositoryContent } from "./components/RepositoryContent";
+import { WorkItemStoreProvider, useWorkItemStore, seedIssues, applyLabelChange, applyBodyChange, rollbackLabels } from "./state/workItemStore";
 
 interface Repository {
   id: number;
@@ -144,13 +147,12 @@ function CreateWorkItemDialog({
   );
 }
 
-function App(): React.JSX.Element {
+function AppContent(): React.JSX.Element {
   const [owner, setOwner] = useState("");
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [repositorySearch, setRepositorySearch] = useState("");
   const [selectedRepo, setSelectedRepo] = useState("");
   const [state, setState] = useState("all");
-  const [data, setData] = useState<ApiData | null>(null);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [loadingIssues, setLoadingIssues] = useState(false);
   const [error, setError] = useState("");
@@ -158,7 +160,6 @@ function App(): React.JSX.Element {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [workItemId, setWorkItemId] = useState<number | undefined>(undefined);
-  const [workItem, setWorkItem] = useState<WorkItem | null>(null);
   const [loadingWorkItem, setLoadingWorkItem] = useState(false);
   const [workItemError, setWorkItemError] = useState("");
   const [implementingIssue, setImplementingIssue] = useState<number | null>(null);
@@ -167,6 +168,8 @@ function App(): React.JSX.Element {
   const [authUser, setAuthUser] = useState<{ login: string; name: string | null; avatarUrl: string | null; htmlUrl: string | null } | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
   const [authError, setAuthError] = useState("");
+
+  const { state: storeState, dispatch } = useWorkItemStore();
 
   // Read URL params
   function readUrlParams(): { repo?: string; state?: string; workItemId?: number } {
@@ -205,9 +208,11 @@ function App(): React.JSX.Element {
     setLoadingIssues(true); setError("");
     try {
       const response = await fetch(`/api/issues?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&state=${encodeURIComponent(state)}`);
-      const body = await response.json() as ApiData & { error?: string };
+      const body = await response.json() as { issues?: GitHubIssue[]; error?: string };
       if (!response.ok) throw new Error(body.error || "Could not load work items");
-      setData(body);
+      if (body.issues) {
+        dispatch(seedIssues(body.issues));
+      }
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : String(requestError)); }
     finally { setLoadingIssues(false); }
   }
@@ -215,7 +220,6 @@ function App(): React.JSX.Element {
   async function selectRepository(repo: string): Promise<void> {
     setSelectedRepo(repo);
     setWorkItemId(undefined);
-    setWorkItem(null);
     await fetchRepositoryIssues(repo);
   }
 
@@ -224,9 +228,14 @@ function App(): React.JSX.Element {
     setLoadingWorkItem(true); setWorkItemError("");
     try {
       const response = await fetch(`/api/issues/${issueId}?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(selectedRepo)}`);
-      const body = await response.json() as { issue?: WorkItem; error?: string };
+      const body = await response.json() as { issue?: GitHubIssue; error?: string };
       if (!response.ok) throw new Error(body.error || "Could not load work item");
-      setWorkItem(body.issue || null);
+      if (body.issue) {
+        // If the issue is not in the store, add it
+        if (!storeState.issues[body.issue.number]) {
+          dispatch(seedIssues([body.issue]));
+        }
+      }
     } catch (requestError) { setWorkItemError(requestError instanceof Error ? requestError.message : String(requestError)); }
     finally { setLoadingWorkItem(false); }
   }
@@ -253,9 +262,11 @@ function App(): React.JSX.Element {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(bodyPayload),
       });
-      const body = await response.json() as ApiData & { error?: string };
+      const body = await response.json() as { issues?: GitHubIssue[]; error?: string };
       if (!response.ok) throw new Error(body.error || "Could not create work item");
-      setData(body);
+      if (body.issues) {
+        dispatch(seedIssues(body.issues));
+      }
       setCreateTarget(null);
     } catch (requestError) {
       setCreateError(requestError instanceof Error ? requestError.message : String(requestError));
@@ -310,7 +321,6 @@ function App(): React.JSX.Element {
         setWorkItemId(urlWorkItemId);
       } else {
         setWorkItemId(undefined);
-        setWorkItem(null);
       }
     };
 
@@ -327,8 +337,6 @@ function App(): React.JSX.Element {
   useEffect(() => { 
     if (selectedRepo) { 
       void fetchRepositoryIssues(selectedRepo); 
-    } else { 
-      setData(null); 
     } 
   }, [selectedRepo, state]);
 
@@ -336,8 +344,6 @@ function App(): React.JSX.Element {
   useEffect(() => {
     if (workItemId && selectedRepo) {
       void fetchWorkItem(workItemId);
-    } else {
-      setWorkItem(null);
     }
   }, [workItemId, selectedRepo]);
 
@@ -345,12 +351,10 @@ function App(): React.JSX.Element {
 
   const handleViewItem = useCallback((issueNumber: number) => {
     setWorkItemId(issueNumber);
-    setWorkItem(null);
   }, []);
 
   const handleBackFromDetail = useCallback(() => {
     setWorkItemId(undefined);
-    setWorkItem(null);
   }, []);
 
   const handleImplementIssue = useCallback(async (issueNumber: number) => {
@@ -362,7 +366,8 @@ function App(): React.JSX.Element {
       );
       const body = await response.json();
       if (!response.ok) throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not start agent run");
-      
+      // Refetch issues to update the store
+      await fetchRepositoryIssues(selectedRepo);
     } catch (implementError) {
       setError(implementError instanceof Error ? implementError.message : String(implementError));
     } finally {
@@ -379,6 +384,8 @@ function App(): React.JSX.Element {
       );
       const body = await response.json();
       if (!response.ok) throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not start scoping run");
+      // Refetch issues to update the store
+      await fetchRepositoryIssues(selectedRepo);
     } catch (scopeError) {
       setError(scopeError instanceof Error ? scopeError.message : String(scopeError));
     } finally {
@@ -391,24 +398,87 @@ function App(): React.JSX.Element {
     setLoadingWorkItem(true);
     setWorkItemError("");
     try {
+      const issue = storeState.issues[issueNumber];
+      if (!issue) {
+        throw new Error("Issue not found in store");
+      }
+
+      // Optimistic update
+      const previousBody = issue.body;
+      dispatch(applyBodyChange(issueNumber, body));
+
       const response = await fetch(`/api/issues/${issueNumber}?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(selectedRepo)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body }),
       });
-      const result = await response.json() as { issue?: WorkItem; error?: string };
-      if (!response.ok) throw new Error(result.error || "Could not save work item");
-      // Update the local work item with the new body
-      if (workItem) {
-        setWorkItem({ ...workItem, body });
+      const result = await response.json() as { issue?: GitHubIssue; error?: string };
+      if (!response.ok) {
+        // Revert on failure
+        dispatch(applyBodyChange(issueNumber, previousBody || ""));
+        throw new Error(result.error || "Could not save work item");
       }
     } catch (error) {
       setWorkItemError(error instanceof Error ? error.message : String(error));
     } finally {
       setLoadingWorkItem(false);
     }
-  }, [selectedRepo, owner, workItem]);
-  
+  }, [selectedRepo, owner, storeState.issues, dispatch]);
+
+  const handleStatusChange = useCallback(async (issueNumber: number, status: string) => {
+    if (!selectedRepo) return;
+    try {
+      const issue = storeState.issues[issueNumber];
+      if (!issue) {
+        throw new Error("Issue not found in store");
+      }
+
+      // Optimistic update
+      const previousLabels = { ...issue.labels };
+      dispatch(applyLabelChange(issueNumber, "status", status));
+
+      const response = await fetch(
+        `/api/repos/${encodeURIComponent(selectedRepo)}/issues/${issueNumber}/label/status:${status}?owner=${encodeURIComponent(owner)}`,
+        { method: "POST" }
+      );
+      if (!response.ok) {
+        // Revert on failure
+        dispatch(rollbackLabels(issueNumber, previousLabels));
+        const body = await response.json();
+        throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not update status");
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
+  }, [selectedRepo, owner, storeState.issues, dispatch]);
+
+  const handlePriorityChange = useCallback(async (issueNumber: number, priority: string) => {
+    if (!selectedRepo) return;
+    try {
+      const issue = storeState.issues[issueNumber];
+      if (!issue) {
+        throw new Error("Issue not found in store");
+      }
+
+      // Optimistic update
+      const previousLabels = { ...issue.labels };
+      dispatch(applyLabelChange(issueNumber, "priority", priority));
+
+      const response = await fetch(
+        `/api/repos/${encodeURIComponent(selectedRepo)}/issues/${issueNumber}/label/priority:${priority}?owner=${encodeURIComponent(owner)}`,
+        { method: "POST" }
+      );
+      if (!response.ok) {
+        // Revert on failure
+        dispatch(rollbackLabels(issueNumber, previousLabels));
+        const body = await response.json();
+        throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not update priority");
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
+  }, [selectedRepo, owner, storeState.issues, dispatch]);
+
   const handleLogout = useCallback(async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
@@ -416,6 +486,28 @@ function App(): React.JSX.Element {
       window.location.href = "/";
     }
   }, []);
+
+  // Get the work item from the store
+  const workItem = useMemo(() => {
+    if (workItemId !== undefined) {
+      return storeState.issues[workItemId] || null;
+    }
+    return null;
+  }, [workItemId, storeState.issues]);
+
+  // Get the data for RepositoryContent
+  const data = useMemo(() => {
+    if (!storeState.hierarchy) return null;
+    return {
+      repository: { owner, repo: selectedRepo },
+      totals: {
+        issues: Object.keys(storeState.issues).length,
+        epics: storeState.hierarchy.epics.length,
+        bugs: storeState.hierarchy.bugs.length,
+      },
+      hierarchy: storeState.hierarchy,
+    };
+  }, [storeState.hierarchy, storeState.issues, owner, selectedRepo]);
 
   if (authRequired && !authUser) {
     return (
@@ -511,6 +603,8 @@ function App(): React.JSX.Element {
               implementingIssue={implementingIssue}
               onScope={(issueNumber) => { void handleScopeIssue(issueNumber); }}
               scopingIssue={scopingIssue}
+              onStatusChange={handleStatusChange}
+              onPriorityChange={handlePriorityChange}
             />
           )}
         </Box>
@@ -523,6 +617,14 @@ function App(): React.JSX.Element {
         />
       </Box>
     </ThemeProvider>
+  );
+}
+
+function App(): React.JSX.Element {
+  return (
+    <WorkItemStoreProvider>
+      <AppContent />
+    </WorkItemStoreProvider>
   );
 }
 
