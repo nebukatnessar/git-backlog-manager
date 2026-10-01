@@ -1,8 +1,10 @@
 import type { AgentRun } from "./implementAgent";
 import {
   createIssueComment,
-  fetchCheckRunLog,
+  fetchCheckRunAnnotations,
   fetchCheckRunsForRef,
+  fetchWorkflowRunLogsForRef,
+  type GitHubCheckAnnotation,
   type GitHubCheckRun,
 } from "./github";
 
@@ -20,18 +22,63 @@ function tail(text: string, maxChars: number): string {
   return text.length > maxChars ? `...(truncated)...\n${text.slice(-maxChars)}` : text;
 }
 
-async function collectFailureLogs(githubPat: string, owner: string, repo: string, failed: GitHubCheckRun[]): Promise<string> {
+interface FailureDiagnostics {
+  /** Prompt-ready text of all diagnostics; empty string when nothing usable was collected. */
+  text: string;
+  /** Human-readable notes about diagnostics that could NOT be collected, for escalation comments. */
+  collectionErrors: string[];
+}
+
+async function collectFailureLogs(
+  githubPat: string,
+  owner: string,
+  repo: string,
+  failed: GitHubCheckRun[],
+): Promise<FailureDiagnostics> {
   const parts: string[] = [];
-  for (const checkRun of failed) {
-    let log = null;
+  const collectionErrors: string[] = [];
+
+  // Fetch job logs once for the head commit shared by all check runs.
+  const headSha = failed.find((checkRun) => checkRun.head_sha)?.head_sha;
+  let workflowLogs: string | null = null;
+  if (headSha) {
     try {
-      log = await fetchCheckRunLog(githubPat, owner, repo, checkRun.id);
+      workflowLogs = await fetchWorkflowRunLogsForRef(githubPat, owner, repo, headSha);
     } catch (error) {
-      console.warn(`Failed to fetch logs for check run ${checkRun.name}:`, error);
+      collectionErrors.push(`workflow job logs (${error instanceof Error ? error.message : String(error)})`);
     }
-    parts.push(`### Failing check: ${checkRun.name}\n${log ? tail(log, CI_LOG_TAIL_CHARS) : "(logs unavailable)"}`);
+  } else {
+    collectionErrors.push("workflow job logs (check runs carried no head SHA)");
   }
-  return parts.join("\n\n");
+
+  for (const checkRun of failed) {
+    const sections: string[] = [];
+
+    const annotations: GitHubCheckAnnotation[] = [];
+    try {
+      const fetched = await fetchCheckRunAnnotations(githubPat, owner, repo, checkRun.id);
+      annotations.push(...fetched);
+    } catch (error) {
+      collectionErrors.push(`annotations for check "${checkRun.name}" (${error instanceof Error ? error.message : String(error)})`);
+    }
+
+    if (annotations.length > 0) {
+      sections.push(
+        annotations
+          .map((annotation) => `- ${annotation.path ? `${annotation.path}:${annotation.start_line ?? "?"}: ` : ""}${annotation.message}`)
+          .join("\n"),
+      );
+    }
+
+    if (workflowLogs) sections.push(tail(workflowLogs, CI_LOG_TAIL_CHARS));
+
+    parts.push(
+      `### Failing check: ${checkRun.name} ([run](${checkRun.html_url}))\n${sections.length > 0 ? sections.join("\n\n") : "(no diagnostics available)"}`,
+    );
+  }
+
+  const usableSections = parts.filter((part) => !part.endsWith("(no diagnostics available)"));
+  return { text: usableSections.length > 0 ? usableSections.join("\n\n") : "", collectionErrors };
 }
 
 /**
@@ -83,8 +130,30 @@ export function watchPullRequestCi(run: AgentRun, branch: string, options: CiWat
         return;
       }
 
-      const failureLogs = await collectFailureLogs(options.githubPat, run.owner, run.repo, failed);
-      await options.launchFix(failureLogs, failed);
+      const diagnostics = await collectFailureLogs(options.githubPat, run.owner, run.repo, failed);
+      if (diagnostics.text.trim().length === 0) {
+        // Never spend a fix cycle on an agent that would be flying blind.
+        console.warn(
+          `CI failed for ${run.owner}/${run.repo}#${run.issueNumber} but no diagnostics could be collected; escalating instead of relaunching.`,
+        );
+        await createIssueComment(
+          options.githubPat,
+          run.owner,
+          run.repo,
+          run.issueNumber,
+          [
+            `CI failed on \`${branch}\` (check(s): ${failed.map((checkRun) => checkRun.name).join(", ")}), but the backend could not collect any failure logs or annotations. Skipping the automatic fix cycle so no blind fix is attempted.`,
+            "",
+            ...failed.map((checkRun) => `- Failing check: [${checkRun.name}](${checkRun.html_url})`),
+            diagnostics.collectionErrors.length > 0
+              ? `\nLog collection errors:\n${diagnostics.collectionErrors.map((entry) => `- ${entry}`).join("\n")}`
+              : "",
+          ].join("\n"),
+        );
+        return;
+      }
+
+      await options.launchFix(diagnostics.text, failed);
     } catch (error) {
       console.warn(`CI watch poll for ${run.owner}/${run.repo}#${run.issueNumber} failed:`, error);
       schedule();
