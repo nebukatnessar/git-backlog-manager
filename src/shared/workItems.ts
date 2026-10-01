@@ -160,7 +160,7 @@ export function buildCreateLabels(input: CreateWorkItemInput): string[] {
   const labels = [`type:${input.type}`, `status:${input.status}`, `priority:${input.priority}`];
 
   // Add actionable label based on type
-  if (input.type === "task" || input.type === "bug") {
+  if (input.type === "task") {
     labels.push(`actionable:needs-scoping`);
   } else {
     labels.push(`actionable:not-applicable`);
@@ -293,7 +293,7 @@ export function buildWorkItemHierarchy(issues: GitHubIssue[] = []): WorkItemHier
       const parentFeature = featuresByPath.get(`${epicSlug}/${featureSlug}`);
       if (parentFeature) parentFeature.tasks.push(taskNode);
       else orphanTasks.push(taskNode);
-      continue;
+        continue;
     }
 
     if (issue.labels.type === "bug") {
