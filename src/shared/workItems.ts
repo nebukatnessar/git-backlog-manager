@@ -319,7 +319,7 @@ export function buildWorkItemHierarchy(issues: GitHubIssue[] = []): WorkItemHier
     epics: sortedEpics,
     bugs: sortByStackRank(bugs),
     orphanFeatures: sortByStackRank(orphanFeatures),
-    orphanTasks: sortByStackRank(orphanTasks)
+    orphanTasks: sortByStackRank(orphanTasks),
     unclassified: sortByStackRank(unclassified),
   };
 }

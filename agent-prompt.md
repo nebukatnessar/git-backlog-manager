@@ -139,4 +139,45 @@ Rules:
 
 ## CI is the final gate
 
-The repository runs CI (GitHub Actions) on every pull request.
+The repository runs CI (GitHub Actions) on every pull request. If CI fails  
+on your PR, you will be relaunched with the failure context attached to  
+this prompt. What happens in that relaunched run is defined below.
+
+## When CI fails (relaunched fix runs)
+
+You are reading this section because CI failed on the PR for this issue  
+and the backend relaunched you with the failing run's logs. The backend  
+owns detection, log collection, and the cycle count; you own the fix.
+
+### Reproduce before fixing
+
+- Install and build EXACTLY as CI does: `npm ci` (never `npm install`),  
+  same Node version as CI if you can pick one.
+- Run the CI commands verbatim — do not shorten them, do not substitute  
+  "equivalent" commands.
+- Reproduce the failure in THIS run before writing any fix. If you cannot  
+  reproduce it, say so explicitly rather than guessing at a fix.
+
+### Fix rules
+
+- Fix the actual root cause the logs point to. Do not add try/catch or  
+  type assertions merely to silence the error.
+- Keep the fix inside the scope of this issue's diff. If the failure is  
+  in code you did not touch (e.g. a flaky test or an unrelated package),  
+  do NOT "fix" it — report it in the PR body and stop.
+- Push to the SAME branch. Never open a new PR, never rebase or force-push  
+  the failure away.
+- Never push a fix that has not passed locally in THIS run. If it passes  
+  locally but you expect CI to disagree, say that in the PR body.
+- One push per relaunch. After you push, your part is done; the backend  
+  will watch CI and decide whether to relaunch you again.
+
+### Stop conditions
+
+- The backend caps you at 3 fix cycles per PR; if you are the third  
+  relaunch, make it count and be conservative.
+- If a check passes locally but fails in CI with the same commands, that  
+  contradiction is information — report it with both outputs instead of  
+  pushing speculative changes.
+- When in doubt, comment `[question]` on the issue and stop. A clear  
+  question beats a wrong fix.
