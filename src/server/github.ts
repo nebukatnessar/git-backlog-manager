@@ -59,7 +59,8 @@ export async function fetchIssue(token: string, owner: string, repo: string, iss
     token,
     `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`,
   );
-  if (issue.pull_request) throw new GitHubApiError(404, "Issue is a pull request");
+  i
+f (issue.pull_request) throw new GitHubApiError(404, "Issue is a pull request");
   return issue;
 }
 
@@ -100,11 +101,41 @@ export async function removeIssueLabel(token: string, owner: string, repo: strin
 }
 
 export async function fetchPullRequestForBranch(token: string, owner: string, repo: string, branch: string): Promise<GitHubPullRequest | null> {
-  const pulls = await githubFetch<GitHubPullRequest[]>(
+  const pulls = await githubF
+etch<GitHubPullRequest[]>(
     token,
     `https://api.github.com/repos/${owner}/${repo}/pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=all`,
   );
   return pulls[0] || null;
+}
+
+export interface GitHubCheckRun {
+  id: number;
+  name: string;
+  html_url: string;
+  status: string;
+  conclusion: string | null;
+  app?: { slug?: string };
+}
+
+export async function fetchCheckRunsForRef(token: string, owner: string, repo: string, ref: string): Promise<GitHubCheckRun[]> {
+  const payload = await githubFetch<{ check_runs?: GitHubCheckRun[] }>(
+    token,
+    `https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}/check-runs?per_page=100`,
+  );
+  return payload.check_runs || [];
+}
+
+export async function fetchCheckRunLog(token: string, owner: string, repo: string, checkRunId: number): Promise<string | null> {
+  const response = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/check-runs/${checkRunId}/logs`,
+    { headers: githubHeaders(token), redirect: "follow" },
+  );
+  if (!response.ok) {
+    if (response.status === 404) return null;
+    throw new GitHubApiError(response.status, await response.text());
+  }
+  return response.text();
 }
 
 export async function fetchRepoFile(token: string, owner: string, repo: string, path: string): Promise<string | null> {

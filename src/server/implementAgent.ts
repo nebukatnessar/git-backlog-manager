@@ -16,6 +16,8 @@ import {
   removeIssueLabel,
 } from "./github";
 import { appendAgentConversation, startAgentConversation, type ConversationOutputEntry } from "./mistralAgents";
+import { MAX_CI_FIX_CYCLES, watchPullRequestCi } from "./ciWatcher";
+import type { GitHubCheckRun } from "./github";
 
 export const MAX_CONCURRENT_AGENT_RUNS = 2;
 export const AGENT_RUN_BUDGET_MS = Number(process.env.AGENT_RUN_BUDGET_MS || 45 * 60 * 1000);
@@ -50,12 +52,14 @@ export interface AgentRun {
   pullRequestUrl?: string;
   questionsCommentUrl?: string;
   message?: string;
+  ciFixCycle?: number;
 }
 
 const runs = new Map<string, AgentRun>();
 
 function runsForIssue(owner: string, repo: string, issueNumber: number): AgentRun[] {
-  return [...runs.values()].filter((run) => run.owner === owner && run.repo === repo && run.issueNumber === issueNumber);
+  return [...runs.values()].filter((run) => run.owner === owner && run.repo === repo && run
+.issueNumber === issueNumber);
 }
 
 export function isRunActiveForIssue(owner: string, repo: string, issueNumber: number): boolean {
@@ -105,11 +109,27 @@ export function buildIssuePrompt(issue: GitHubIssue, owner?: string, repo?: stri
     `Title: ${issue.title}`,
     "",
     "Body:",
-    issue.body || "(empty)",
+    
+issue.body || "(empty)",
     "",
     `Labels: ${labels || "(none)"}`,
     "",
     "Run your mandatory pre-flight check first. If the story is underspecified, follow the rejection protocol.",
+  ].join("\n");
+}
+
+export function buildCiFixPrompt(issue: GitHubIssue, failingCheckRuns: GitHubCheckRun[], failureLogs: string, cycle: number): string {
+  return [
+    `CI failed on the pull request for issue #${issue.number} ("${issue.title}"). This is fix cycle ${cycle} of ${MAX_CI_FIX_CYCLES}.`,
+    "",
+    "Fix the failure and push to the SAME branch and pull request. Do NOT open a new pull request, do NOT rebase away the failing commits.",
+    "Reproduce the failure first, fix the smallest thing, and only push a fix you have seen pass in THIS run.",
+    "",
+    `Failing checks: ${failingCheckRuns.map((checkRun) => checkRun.name).join(", ")}`,
+    "",
+    "Failure logs (may be truncated):",
+    "",
+    failureLogs,
   ].join("\n");
 }
 
@@ -156,7 +176,8 @@ async function checkRejection(run: AgentRun, githubPat: string): Promise<boolean
   const comments = await fetchIssueComments(githubPat, run.owner, run.repo, run.issueNumber);
   const rejectionComment = [...comments]
     .reverse()
-    .find((comment) => parseAgentQuestions(comment.body).length > 0);
+    .find((comment) => parse
+AgentQuestions(comment.body).length > 0);
 
   if (!rejectionComment) return false;
 
@@ -214,14 +235,70 @@ export async function startAgentRun(
   return run;
 }
 
-async function executeRun(run: AgentRun, mistralApiKey: string, agentId: string, githubPat: string): Promise<void> {
+/**
+ * Start a CI-failure fix run for an issue that already has an agent PR.
+ * Bypasses the actionable:ready eligibility check (the issue is
+ * actionable:implemented at this point) but enforces the fix-cycle limit.
+ */
+export async function startCiFixRun(
+  mistralApiKey: string,
+  agentId: string,
+  githubPat: string,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  failingCheckRuns: GitHubCheckRun[],
+  failureLogs: string,
+): Promise<AgentRun> {
+  const previousRun = getLatestRun(owner, repo, issueNumber);
+  const cycle = (previousRun?.ciFixCycle || 0) + 1;
+  if (cycle > MAX_CI_FIX_CYCLES) {
+    throw new Error(`CI fix cycle limit of ${MAX_CI_FIX_CYCLES} reached for ${owner}/${repo}#${issueNumber}.`);
+  }
+  if (activeRunCount() >= MAX_CONCURRENT_AGENT_RUNS) {
+    throw new Error("Global concurrent agent run limit reached. Try again later.");
+  }
+  if (previousRun && previousRun.state === "running") {
+    throw new Error("An agent run is already active for this issue.");
+  }
+
+  const issue = await fetchIssue(githubPat, owner, repo, issueNumber);
+
+  await ensureLabelsExist(githubPat, owner, repo, [AGENT_IN_PROGRESS_LABEL], labelColor);
+  await addIssueLabels(githubPat, owner, repo, issueNumber, [AGENT_IN_PROGRESS_LABEL]);
+  await removeIssueLabel(githubPat, owner, repo, issueNumber, IMPLEMENTED_LABEL);
+
+  const run: AgentRun = {
+    runId: `run-${issueNumber}-cifix${cycle}-${Date.now()}`,
+    owner,
+    repo,
+    issueNumber,
+    state: "running",
+    startedAt: Date.now(),
+    ciFixCycle: cycle,
+  };
+  runs.set(run.runId, run);
+  console.log(`CI fix run ${run.runId} (cycle ${cycle}) started for ${owner}/${repo}#${issueNumber}`);
+
+  void executeRun(run, mistralApiKey, agentId, githubPat, buildCiFixPrompt(issue, failingCheckRuns, failureLogs, cycle)).catch(
+    async (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      await setRunFailed(run, githubPat, message, error);
+    },
+  );
+
+  return run;
+}
+
+
+async function executeRun(run: AgentRun, mistralApiKey: string, agentId: string, githubPat: string, promptOverride?: string): Promise<void> {
   const issueUrl = `https://github.com/${run.owner}/${run.repo}/issues/${run.issueNumber}`;
   try {
     const issue = await fetchIssue(githubPat, run.owner, run.repo, run.issueNumber);
 
     console.log(`Agent run ${run.runId} starting conversation (turn 1) for ${issueUrl}`);
     const conversation = await withTurnTimeout(
-      startAgentConversation(mistralApiKey, agentId, buildIssuePrompt(issue, run.owner, run.repo)),
+      startAgentConversation(mistralApiKey, agentId, promptOverride || buildIssuePrompt(issue, run.owner, run.repo)),
     );
     run.conversationId = conversation.conversationId;
     console.log(`Agent run ${run.runId} turn 1 finished (conversation ${conversation.conversationId})`);
@@ -234,6 +311,12 @@ async function executeRun(run: AgentRun, mistralApiKey: string, agentId: string,
       if (await checkRejection(run, githubPat)) return;
       if (await findPullRequest(run, githubPat)) {
         await finalizeSuccess(run, githubPat);
+        watchPullRequestCi(run, agentBranchForIssue(run.issueNumber), {
+          githubPat,
+          launchFix: (failureLogs, failingCheckRuns) =>
+            startCiFixRun(mistralApiKey, agentId, githubPat, run.owner, run.repo, run.issueNumber, failingCheckRuns, failureLogs)
+                .then(() => undefined),
+        });
         return;
       }
 
@@ -254,7 +337,8 @@ async function executeRun(run: AgentRun, mistralApiKey: string, agentId: string,
 
 function withTurnTimeout<T>(promise: Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`Agent turn exceeded ${TURN_TIMEOUT_MS / 60000} minutes.`)), TURN_TIMEOUT_MS);
+    const timer = setTimeout(() => reject(new Error(`
+Agent turn exceeded ${TURN_TIMEOUT_MS / 60000} minutes.`)), TURN_TIMEOUT_MS);
     promise.then(
       (value) => {
         clearTimeout(timer);
