@@ -113,6 +113,7 @@ export interface GitHubCheckRun {
   html_url: string;
   status: string;
   conclusion: string | null;
+  head_sha?: string;
   app?: { slug?: string };
 }
 
@@ -124,16 +125,61 @@ export async function fetchCheckRunsForRef(token: string, owner: string, repo: s
   return payload.check_runs || [];
 }
 
-export async function fetchCheckRunLog(token: string, owner: string, repo: string, checkRunId: number): Promise<string | null> {
-  const response = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/check-runs/${checkRunId}/logs`,
-    { headers: githubHeaders(token), redirect: "follow" },
-  );
-  if (!response.ok) {
-    if (response.status === 404) return null;
-    throw new GitHubApiError(response.status, await response.text());
+export interface GitHubCheckAnnotation {
+  message: string;
+  path?: string;
+  start_line?: number;
+}
+
+/**
+ * Fetch the annotations attached to a check run. For compile/lint failures these
+ * usually contain exact `file:line: error` messages, which is the most useful
+ * diagnostic for a fix agent.
+ */
+export async function fetchCheckRunAnnotations(token: string, owner: string, repo: string, checkRunId: number): Promise<GitHubCheckAnnotation[]> {
+  try {
+    return await githubFetch<GitHubCheckAnnotation[]>(
+      token,
+      `https://api.github.com/repos/${owner}/${repo}/check-runs/${checkRunId}/annotations?per_page=100`,
+    );
+  } catch (error) {
+    if (error instanceof GitHubApiError && error.statusCode === 404) return [];
+    throw error;
   }
-  return response.text();
+}
+
+/**
+ * Fetch the combined logs of the latest workflow run's jobs for a given ref.
+ * GitHub does not expose logs through the check-runs API; the working path is
+ * the Actions runs API: list runs for the head sha, then fetch each job's logs.
+ */
+export async function fetchWorkflowRunLogsForRef(token: string, owner: string, repo: string, ref: string): Promise<string | null> {
+  const runs = await githubFetch<{ workflow_runs?: Array<{ id: number; status: string }> }>(
+    token,
+    `https://api.github.com/repos/${owner}/${repo}/actions/runs?head_sha=${encodeURIComponent(ref)}&per_page=5`,
+  );
+
+  const latestRun = (runs.workflow_runs || []).find((workflowRun) => workflowRun.status === "completed");
+  if (!latestRun) return null;
+
+  const jobs = await githubFetch<{ jobs?: Array<{ id: number; name: string; conclusion: string | null }> }>(
+    token,
+    `https://api.github.com/repos/${owner}/${repo}/actions/runs/${latestRun.id}/jobs?per_page=100`,
+  );
+
+  const parts: string[] = [];
+  for (const job of jobs.jobs || []) {
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/actions/jobs/${job.id}/logs`,
+      { headers: githubHeaders(token), redirect: "follow" },
+    );
+    if (!response.ok) {
+      if (response.status === 404) continue;
+      throw new GitHubApiError(response.status, await response.text());
+    }
+    parts.push(`### Job: ${job.name}\n${await response.text()}`);
+  }
+  return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
 export async function fetchRepoFile(token: string, owner: string, repo: string, path: string): Promise<string | null> {
