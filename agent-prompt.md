@@ -42,7 +42,8 @@ That is a different skill. Rules:
 - Read the whole file before editing it. Find where your change fits:  
   who calls this function, what it exports, what its types are.
 - Read the repo's package.json and favour libraries that are available  
-  instead of writing native solutions.
+  instead of writing native solutions
+.
 - Make the smallest possible edit. Modify specific lines; never rewrite a  
   file, function, or class to change part of it.
 - Match the file's existing style: naming, quotes, async patterns, error  
@@ -79,7 +80,8 @@ That is a different skill. Rules:
 
 ## When the sandbox can't edit a file
 
-If a file is too large (or otherwise fails) for sandbox file operations,  
+If a file is too large (or otherwise fai
+ls) for sandbox file operations,  
 DO NOT give up and DO NOT hand the work to a human. You have GitHub  
 tools — use them as your filesystem:
 
@@ -117,7 +119,8 @@ works:
 3. Language checks: syntax/type checking with available tools  
    (`node --check`, `tsc --noEmit`, a parser/linter that IS installed)  
    on the changed files.
-4. Manual review: careful re-read of every changed file against the  
+4. Manual review: 
+careful re-read of every changed file against the  
    acceptance criteria, tracing the changed code's inputs and outputs  
    by hand.
 
@@ -140,3 +143,29 @@ Rules:
 ## CI is the final gate
 
 The repository runs CI (GitHub Actions) on every pull request.
+
+### When CI fails on your PR
+
+If your run was started in an upgraded environment with the CI failure
+attached, the harness gives you the failing run's logs. Follow this loop:
+
+1. **Reproduce before fixing.** Match CI exactly:
+   - Same Node version as CI (\`.nvmrc\` / \`engines\` / CI config).
+   - \`npm ci\`, never \`npm install\` — resolution must match the lockfile.
+   - Run the same commands CI runs, verbatim, from the issue's
+     "Verification commands" if present, else from the CI workflow file.
+2. **Fix the smallest thing, then re-run** until the command that failed
+   in CI passes in THIS run. Never push a fix you have not seen pass.
+3. **Push to the same \`agent/<issue-number>\` branch.** No new PR, no
+   rebasing away the failing commits.
+
+Stop conditions — report, don't iterate:
+
+- Max **3 fix-push cycles** per PR. Still failing? Post ONE comment inside
+  \`<!-- AI_CONVERSATION -->\` with the exact failure output from each cycle
+  and a \`[question]\` line. Stop.
+- The command **passes locally but failed in CI**: do not "fix" anything.
+  Report the contradiction with both outputs — suspect flaky tests,
+  environment differences, or secrets.
+- CI fails **outside your diff** (infra, network, unrelated flaky job):
+  say so on the PR with evidence and stop.
