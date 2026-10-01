@@ -183,19 +183,17 @@ export async function fetchWorkflowRunLogsForRef(token: string, owner: string, r
 }
 
 export async function fetchRepoFile(token: string, owner: string, repo: string, path: string): Promise<string | null> {
+  // Request raw content and read it as text. This must NOT go through
+  // githubFetch: that helper assumes a JSON body, but with
+  // "Accept: application/vnd.github.raw" GitHub returns the raw file bytes
+  // (HTTP 200), and response.json() then fails on the first non-JSON character.
   try {
-    const file = await githubFetch<{ content?: string; encoding?: string }>(
-      token,
-      `https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
-      { headers: { Accept: "application/vnd.github.raw" } },
-    );
-    if (typeof file.content === "string" && (!file.encoding || file.encoding === "base64")) {
-      if (file.encoding === "base64") {
-        return Buffer.from(file.content, "base64").toString("utf-8");
-      }
-      return file.content;
-    }
-    return typeof file.content === "string" ? file.content : null;
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+      headers: { ...githubHeaders(token), Accept: "application/vnd.github.raw" },
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new GitHubApiError(response.status, await response.text());
+    return await response.text();
   } catch (error) {
     if (error instanceof GitHubApiError && error.statusCode === 404) return null;
     throw error;
