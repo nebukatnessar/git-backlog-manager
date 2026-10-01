@@ -405,32 +405,7 @@ export function WorkItemDetail({
             Edit
           </Button>
         )}
-        {/* Scope and Implement buttons for task and bug issues */}
-        {(type === "task" || type === "bug") && (
-          <>
-            {actionableLabel && actionableLabel !== "ready" && actionableLabel !== "implemented" && (
-              <Button
-                variant="contained"
-                startIcon={scoping ? <CircularProgress size={16} color="inherit" /> : <TravelExplore />}
-                disabled={scoping}
-                onClick={() => void handleScope()}
-                color="secondary"
-              >
-                {scoping ? "Scoping..." : "Scope"}
-              </Button>
-            )}
-            {actionableLabel === "ready" && (
-              <Button
-                variant="contained"
-                startIcon={starting ? <CircularProgress size={16} color="inherit" /> : <PlayCircle />}
-                disabled={starting}
-                onClick={() => void handleStart()}
-              >
-                {starting ? "Running..." : "Implement"}
-              </Button>
-            )}
-          </>
-        )}
+ 
         <Chip
           icon={getTypeIcon(type)}
           label={getTypeLabel(type)}
