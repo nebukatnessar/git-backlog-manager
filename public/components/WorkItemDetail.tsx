@@ -17,6 +17,7 @@ interface WorkItemDetailProps {
   allFeatures?: Array<{ slug: string; title: string; body?: string; epicSlug?: string }>;
   onStatusChange?: (issueNumber: number, status: string) => Promise<void>;
   onPriorityChange?: (issueNumber: number, priority: string) => Promise<void>;
+  onActionableChange?: (issueNumber: number, actionable: string) => Promise<void>;
   onRunFinished?: () => Promise<void>;
 }
 
@@ -54,6 +55,7 @@ interface ConversationMessage {
 // Status and priority options as per issue #12
 const STATUS_OPTIONS = ["backlog", "in-progress", "removed", "ready-for-review", "approved", "done"] as const;
 const PRIORITY_OPTIONS = ["low", "medium", "high"] as const;
+const ACTIONABLE_OPTIONS = ["needs-scoping", "ready", "in-progress", "implemented", "rejected"] as const;
 
 export function WorkItemDetail({ 
   workItem, 
@@ -65,6 +67,7 @@ export function WorkItemDetail({
   allFeatures = [],
   onStatusChange,
   onPriorityChange,
+  onActionableChange,
   onRunFinished,
 }: WorkItemDetailProps): React.JSX.Element {
   const [isEditing, setIsEditing] = useState(false);
@@ -82,6 +85,9 @@ export function WorkItemDetail({
   const [updatingPriority, setUpdatingPriority] = useState(false);
   const [statusError, setStatusError] = useState<string>("");
   const [priorityError, setPriorityError] = useState<string>("");
+  const [actionableValue, setActionableValue] = useState<string>("");
+  const [updatingActionable, setUpdatingActionable] = useState(false);
+  const [actionableError, setActionableError] = useState<string>("");
   const [labelsDialogOpen, setLabelsDialogOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [scoping, setScoping] = useState(false);
@@ -183,7 +189,9 @@ export function WorkItemDetail({
       const rawStatus = workItem.labels.status || "";
       const rawPriority = workItem.labels.priority || "";
       setStatusValue(rawStatus.startsWith("status:") ? rawStatus.substring(7) : rawStatus);
+      const rawActionable = workItem.labels.actionable || "";
       setPriorityValue(rawPriority.startsWith("priority:") ? rawPriority.substring(9) : rawPriority);
+      setActionableValue(rawActionable.startsWith("actionable:") ? rawActionable.substring(11) : rawActionable);
       
       // Initialize stack rank from the stack-rank label
       const rawStackRank = workItem.labels["stack-rank"] || "";
@@ -208,6 +216,7 @@ export function WorkItemDetail({
   const featureSlug = workItem.labels.feature;
   const taskSlug = workItem.labels.task;
   const actionableLabel = workItem.labels.actionable;
+  const isClosed = workItem.state === "closed";
   
   // Prepare parent epic and feature data in the format expected by AIAssistantPanel
   const foundEpic = epicSlug ? allEpics.find(e => e.slug === epicSlug) : undefined;
@@ -312,6 +321,28 @@ export function WorkItemDetail({
     }
   }, [workItem, onPriorityChange, priority]);
 
+  // Handle actionable dropdown change
+  const handleActionableChange = useCallback(async (newActionable: string) => {
+    if (!workItem || !onActionableChange) return;
+
+    setUpdatingActionable(true);
+    setActionableError("");
+
+    try {
+      // Optimistically update the UI
+      setActionableValue(newActionable);
+
+      // Call the parent handler to dispatch the action
+      await onActionableChange(workItem.number, newActionable);
+    } catch (error) {
+      // Revert the UI on error
+      setActionableValue(actionableLabel || "");
+      setActionableError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setUpdatingActionable(false);
+    }
+  }, [workItem, onActionableChange, actionableLabel]);
+
   // Handle stack rank field change
   const handleStackRankChange = useCallback(async (newValue: string) => {
     if (!workItem || !owner || !repo) return;
@@ -401,7 +432,7 @@ export function WorkItemDetail({
             </Button>
           </>
         ) : (
-          <Button startIcon={<Edit />} variant="outlined" onClick={handleStartEdit}>
+          <Button startIcon={<Edit />} variant="outlined" onClick={handleStartEdit} disabled={isClosed}>
             Edit
           </Button>
         )}
@@ -433,12 +464,7 @@ export function WorkItemDetail({
               </Typography>
               <Stack direction="row" spacing={2} sx={{ mt: 1, alignItems: "center" }}>
                 {/* Type label - read-only text */}
-                {type && (
-                  <Typography variant="body2" color="text.secondary">
-                    type: {type}
-                  </Typography>
-                )}
-                
+  
                 {/* Status dropdown */}
                 <Box sx={{ minWidth: 180 }}>
                   <TextField
@@ -482,6 +508,31 @@ export function WorkItemDetail({
                   >
                     <MenuItem value="">Select priority</MenuItem>
                     {PRIORITY_OPTIONS.map((option) => (
+                      <MenuItem key={option} value={option}>
+                        {option}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Box>
+
+                {/* Actionable dropdown */}
+                <Box sx={{ minWidth: 150 }}>
+                  <TextField
+                    select
+                    fullWidth
+                    size="small"
+                    label="Actionable"
+                    value={actionableValue}
+                    onChange={(e) => handleActionableChange(e.target.value)}
+                    disabled={updatingActionable}
+                    error={!!actionableError}
+                    helperText={actionableError}
+                    InputProps={{
+                      startAdornment: updatingActionable ? <CircularProgress size={20} /> : null,
+                    }}
+                  >
+                    <MenuItem value="">none</MenuItem>
+                    {ACTIONABLE_OPTIONS.map((option) => (
                       <MenuItem key={option} value={option}>
                         {option}
                       </MenuItem>
@@ -639,8 +690,10 @@ export function WorkItemDetail({
               issueType={type}
               actionableLabel={actionableLabel}
               onRunFinished={onRunFinished}
+              issueClosed={isClosed}
             />
             <AIAssistantPanel
+            issueClosed={isClosed}
             key={`ai-assistant-${workItem.number}`}
             description={isEditing ? editBody : (workItem.body || "")}
             additionalContext={{

@@ -52,6 +52,7 @@ interface RepositoryContentProps {
   scopingIssue?: number | null;
   onStatusChange?: (issueNumber: number, status: string) => Promise<void>;
   onPriorityChange?: (issueNumber: number, priority: string) => Promise<void>;
+  onActionableChange?: (issueNumber: number, actionable: string) => Promise<void>;
   onRunFinished?: () => Promise<void>;
 }
 
@@ -180,6 +181,7 @@ export function RepositoryContent({
   scopingIssue,
   onStatusChange,
   onPriorityChange,
+  onActionableChange,
   onRunFinished,
 }: RepositoryContentProps): React.JSX.Element {
   const [agentsOpen, setAgentsOpen] = useState(false);
@@ -318,6 +320,7 @@ export function RepositoryContent({
             }))) || []}
             onStatusChange={onStatusChange}
             onPriorityChange={onPriorityChange}
+            onActionableChange={onActionableChange}
             onRunFinished={onRunFinished}
           />
         ) : (

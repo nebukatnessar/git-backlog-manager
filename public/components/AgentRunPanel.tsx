@@ -52,6 +52,7 @@ interface UseAgentRunProps {
   repo: string;
   issueNumber: number;
   issueType?: string;
+  issueClosed?: boolean;
   actionableLabel?: string;
   onRunFinished?: () => Promise<void>;
 }
@@ -83,7 +84,7 @@ export interface UseAgentRunReturn {
   refreshStatus: () => Promise<void>;
 }
 
-export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLabel, onRunFinished }: UseAgentRunProps): UseAgentRunReturn {
+export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLabel, issueClosed, onRunFinished }: UseAgentRunProps): UseAgentRunReturn {
   const [status, setStatus] = useState<AgentRunStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -207,12 +208,14 @@ export function useAgentRun({ owner, repo, issueNumber, issueType, actionableLab
   }, [scopingRun, onRunFinished]);
 
   const canImplement =
+    !issueClosed &&
     (issueType === "task" || issueType === "bug") &&
     actionableLabel === "ready" &&
     !status?.eligibility.inProgress &&
     status?.run?.state !== "running";
 
   const canScope =
+    !issueClosed &&
     (issueType === "task" || issueType === "bug") &&
     Boolean(actionableLabel) &&
     actionableLabel !== "ready" &&
@@ -318,6 +321,7 @@ interface AgentRunPanelProps {
   issueType?: string;
   actionableLabel?: string;
   onRunFinished?: () => Promise<void>;
+  issueClosed?: boolean;
 }
 
 function stateLabel(state: AgentRunInfo["state"]): string {
@@ -333,7 +337,7 @@ function stateLabel(state: AgentRunInfo["state"]): string {
   }
 }
 
-export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableLabel, onRunFinished }: AgentRunPanelProps): React.JSX.Element {
+export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableLabel, issueClosed, onRunFinished }: AgentRunPanelProps): React.JSX.Element {
   const {
     status,
     loading,
@@ -351,7 +355,7 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
     handleScope,
     handleSubmitAnswers,
     setAnswers,
-  } = useAgentRun({ owner, repo, issueNumber, issueType, actionableLabel, onRunFinished });
+  } = useAgentRun({ owner, repo, issueNumber, issueType, actionableLabel, issueClosed, onRunFinished });
 
   if (loading) {
     return (
@@ -379,6 +383,11 @@ export function AgentRunPanel({ owner, repo, issueNumber, issueType, actionableL
 
       {error && <Alert severity="error" sx={{ mb: 1.5 }}>{error}</Alert>}
 
+      {issueClosed && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          This issue is closed on GitHub. Reopen it to enable the implement and scoping agents.
+        </Typography>
+      )}
       {issueType !== "task" && issueType !== "bug" && (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
           Only task or bug issues can be implemented by the agent.

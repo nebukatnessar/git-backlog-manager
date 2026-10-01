@@ -481,6 +481,33 @@ function AppContent(): React.JSX.Element {
     }
   }, [selectedRepo, owner, storeState.issues, dispatch]);
 
+  const handleActionableChange = useCallback(async (issueNumber: number, actionable: string) => {
+    if (!selectedRepo) return;
+    try {
+      const issue = storeState.issues[issueNumber];
+      if (!issue) {
+        throw new Error("Issue not found in store");
+      }
+
+      // Optimistic update
+      const previousLabels = { ...issue.labels };
+      dispatch(applyLabelChange(issueNumber, "actionable", actionable));
+
+      const response = await fetch(
+        `/api/repos/${encodeURIComponent(selectedRepo)}/issues/${issueNumber}/label/actionable:${actionable}?owner=${encodeURIComponent(owner)}`,
+        { method: "POST" }
+      );
+      if (!response.ok) {
+        // Revert on failure
+        dispatch(rollbackLabels(issueNumber, previousLabels));
+        const body = await response.json();
+        throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not update actionable label");
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
+  }, [selectedRepo, owner, storeState.issues, dispatch]);
+
   const handleLogout = useCallback(async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
@@ -607,6 +634,7 @@ function AppContent(): React.JSX.Element {
               scopingIssue={scopingIssue}
               onStatusChange={handleStatusChange}
               onPriorityChange={handlePriorityChange}
+              onActionableChange={handleActionableChange}
               onRunFinished={handleRunFinished}
             />
           )}

@@ -58,11 +58,13 @@ function workItemReducer(state: WorkItemStoreState, action: WorkItemAction): Wor
       const issue = state.issues[issueNumber];
       if (!issue) return state;
 
-      // Create a new labels object with the updated namespace
-      const updatedLabels: Record<string, string> = {
-        ...issue.labels,
-        [namespace]: value,
-      };
+      // Create a new labels object with the updated namespace (empty value removes the label)
+      const updatedLabels: Record<string, string> = { ...issue.labels };
+      if (value) {
+        updatedLabels[namespace] = value;
+      } else {
+        delete updatedLabels[namespace];
+      }
 
       // Create updated WorkItem first
       const updatedWorkItem: WorkItem = {

@@ -21,6 +21,7 @@ interface AIAssistantPanelProps {
   onApplySuggestion: (updatedDescription: string) => void;
   conversation?: Message[];
   onConversationChange?: (conversation: Message[]) => void;
+  issueClosed?: boolean;
 }
 
 // Helper to extract the updated work item text from the model's output
@@ -47,7 +48,8 @@ export function AIAssistantPanel({
   additionalContext, 
   onApplySuggestion,
   conversation = [],
-  onConversationChange
+  onConversationChange,
+  issueClosed = false
 }: AIAssistantPanelProps): React.JSX.Element {
   const [messages, setMessages] = useState<Message[]>(conversation);
   const [inputMessage, setInputMessage] = useState("");
@@ -147,6 +149,11 @@ export function AIAssistantPanel({
       </Stack>
 
       <Divider sx={{ my: 1, borderColor: "divider" }} />
+      {issueClosed && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          This issue is closed on GitHub; the AI assistant is disabled.
+        </Typography>
+      )}
 
       {/* Chat Log */}
       <Box
@@ -222,6 +229,7 @@ export function AIAssistantPanel({
           size="small"
           variant="contained"
           onClick={handleApplyLastSuggestion}
+          disabled={issueClosed}
           sx={{ mb: 1, alignSelf: "flex-start" }}
         >
           Apply latest suggestion to description
@@ -239,12 +247,12 @@ export function AIAssistantPanel({
             placeholder="Ask for help with this work item..."
             value={inputMessage}
             onChange={(e: ChangeEvent<HTMLInputElement>) => setInputMessage(e.target.value)}
-            disabled={isLoading}
+            disabled={isLoading || issueClosed}
             InputProps={{
               sx: { fontSize: "0.875rem" },
             }}
           />
-          <Button type="submit" variant="contained" disabled={isLoading || !inputMessage.trim()}>
+          <Button type="submit" variant="contained" disabled={isLoading || issueClosed || !inputMessage.trim()}>
             {isLoading ? <CircularProgress size={20} color="inherit" /> : "Send"}
           </Button>
         </Stack>

@@ -334,8 +334,11 @@ export function registerCoreRoutes(app: Express): void {
         }
       }
 
-      // Add the new label
-      await addIssueLabels(token, owner, repo, issueNumber, [label]);
+      // Add the new label; an empty namespaced value (e.g. "actionable:") only clears the namespace
+      const value = label.includes(":") ? label.split(":").slice(1).join(":") : label;
+      if (value) {
+        await addIssueLabels(token, owner, repo, issueNumber, [label]);
+      }
 
       // Return 204 No Content on success
       return res.status(204).send();
