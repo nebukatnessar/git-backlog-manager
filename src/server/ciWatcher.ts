@@ -2,10 +2,12 @@ import type { AgentRun } from "./implementAgent";
 import {
   createIssueComment,
   fetchCheckRunAnnotations,
+  fetchPullRequestForBranch,
   fetchCheckRunsForRef,
   fetchWorkflowRunLogsForRef,
   type GitHubCheckAnnotation,
   type GitHubCheckRun,
+  type GitHubPullRequest,
 } from "./github";
 
 const CI_POLL_INTERVAL_MS = Number(process.env.CI_POLL_INTERVAL_MS || 30_000);
@@ -116,11 +118,13 @@ export function watchPullRequestCi(run: AgentRun, branch: string, options: CiWat
       const cycle = run.ciFixCycle || 0;
       if (cycle >= MAX_CI_FIX_CYCLES) {
         console.warn(`CI still failing for ${run.owner}/${run.repo}#${run.issueNumber} after ${cycle} fix cycles; escalating.`);
+        const pullRequest = await fetchPullRequestForBranch(options.githubPat, run.owner, run.repo, branch);
+        const targetNumber = pullRequest?.number ?? run.issueNumber;
         await createIssueComment(
           options.githubPat,
           run.owner,
           run.repo,
-          run.issueNumber,
+          targetNumber,
           [
             `CI is still failing on \`${branch}\` after ${MAX_CI_FIX_CYCLES} fix cycles. Stopping automatic fixes; this needs a human.`,
             "",
@@ -136,11 +140,13 @@ export function watchPullRequestCi(run: AgentRun, branch: string, options: CiWat
         console.warn(
           `CI failed for ${run.owner}/${run.repo}#${run.issueNumber} but no diagnostics could be collected; escalating instead of relaunching.`,
         );
+        const pullRequest = await fetchPullRequestForBranch(options.githubPat, run.owner, run.repo, branch);
+        const targetNumber = pullRequest?.number ?? run.issueNumber;
         await createIssueComment(
           options.githubPat,
           run.owner,
           run.repo,
-          run.issueNumber,
+          targetNumber,
           [
             `CI failed on \`${branch}\` (check(s): ${failed.map((checkRun) => checkRun.name).join(", ")}), but the backend could not collect any failure logs or annotations. Skipping the automatic fix cycle so no blind fix is attempted.`,
             "",
