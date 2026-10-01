@@ -81,7 +81,6 @@ export function isValidSlug(value: string): boolean {
 }
 
 export function slugify(value: string): string {
-
   const slug = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
   return slug || "item";
 }
@@ -133,8 +132,7 @@ export function validateCreateWorkItem(input: {
   const slug = slugify(input.slug || title);
   if (!isValidSlug(slug)) return { ok: false, error: "Slug must use lowercase letters, numbers, and hyphens." };
 
-  const epic = (input.epic || "").trim()
-.toLowerCase();
+  const epic = (input.epic || "").trim().toLowerCase();
   const feature = (input.feature || "").trim().toLowerCase();
 
   if (type === "feature" && !isValidSlug(epic)) {
@@ -198,8 +196,7 @@ export function parseNamespacedLabels(labels: GitHubIssue["labels"]): Record<str
     const namespace = name.slice(0, splitIndex);
     const value = name.slice(splitIndex + 1);
 
-    if (!/^[a-z0-9-]+$/.test(namespace)) conti
-nue;
+    if (!/^[a-z0-9-]+$/.test(namespace)) continue;
     if (!/^[a-z0-9-]+$/.test(value)) continue;
 
     parsed[namespace] = value;
@@ -267,8 +264,7 @@ export function buildWorkItemHierarchy(issues: GitHubIssue[] = []): WorkItemHier
     const epicSlug = issue.labels.epic;
     const featureSlug = issue.labels.feature;
 
-    if (!epicSlug || !
-featureSlug) {
+    if (!epicSlug || !featureSlug) {
       orphanFeatures.push(issue);
       continue;
     }
@@ -297,7 +293,7 @@ featureSlug) {
       const parentFeature = featuresByPath.get(`${epicSlug}/${featureSlug}`);
       if (parentFeature) parentFeature.tasks.push(taskNode);
       else orphanTasks.push(taskNode);
-      continue;
+        continue;
     }
 
     if (issue.labels.type === "bug") {
@@ -323,15 +319,14 @@ featureSlug) {
     epics: sortedEpics,
     bugs: sortByStackRank(bugs),
     orphanFeatures: sortByStackRank(orphanFeatures),
-    orphanTasks: sortByStackRank(orphanTasks),
+    orphanTasks: sortByStackRank(orphanTasks)
     unclassified: sortByStackRank(unclassified),
   };
 }
 
 // New function to assign stack-ranks to items without them
 export function assignStackRanksToItemsWithoutRank(issues: GitHubIssue[]): Array<{ issueNumber: number; stackRank: number }> {
-  const itemsWithoutRank: Array<{ issueNumber: number; stackRank: number }> = 
-[];
+  const itemsWithoutRank: Array<{ issueNumber: number; stackRank: number }> = [];
 
   for (const issue of issues) {
     const currentRank = getStackRankFromLabels(issue.labels);
