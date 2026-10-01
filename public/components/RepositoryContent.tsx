@@ -218,11 +218,11 @@ export function RepositoryContent({
   };
 
   // Handle filter changes from FilterDialog
-  const handleApplyFilters = (newFilters: FilterState) => {
+  const handleApplyFilters = useCallback((newFilters: FilterState) => {
     setFilters(newFilters);
     // Map githubState to the existing state prop for backward compatibility
     onStateChange(newFilters.githubState);
-  };
+  }, [onStateChange]);
 
   // Filter the epics, features, and tasks based on the current filters and search query
   const filteredData = useMemo(() => {

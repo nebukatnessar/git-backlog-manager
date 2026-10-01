@@ -281,6 +281,7 @@ export function registerCoreRoutes(app: Express): void {
       return res.status(201).json({
         repository: { owner, repo },
         totals: { issues: updatedIssues.length, epics: updatedHierarchy.epics.length, bugs: updatedHierarchy.bugs.length },
+        issues: updatedIssues,
         hierarchy: updatedHierarchy,
       });
     } catch (error) {
