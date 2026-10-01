@@ -198,8 +198,7 @@ export function parseNamespacedLabels(labels: GitHubIssue["labels"]): Record<str
     const namespace = name.slice(0, splitIndex);
     const value = name.slice(splitIndex + 1);
 
-    if (!/^[a-z0-9-]+$/.test(namespace)) conti
-nue;
+    if (!/^[a-z0-9-]+$/.test(namespace)) continue;
     if (!/^[a-z0-9-]+$/.test(value)) continue;
 
     parsed[namespace] = value;
@@ -359,7 +358,13 @@ export function itemMatchesQuery(item: WorkItem | Epic | Feature, query: string)
 
   // Match against label slugs/namespaces
   for (const [key, value] of Object.entries(item.labels)) {
-    if (key.toLowerCase().includes(lowerQuery) || value.toLowerCase().includes(lowerQuery)) {
+    const normalizedKey = key.toLowerCase();
+    const normalizedValue = value.toLowerCase();
+    if (
+      normalizedKey.includes(lowerQuery) ||
+      normalizedValue.includes(lowerQuery) ||
+      `${normalizedKey}:${normalizedValue}`.includes(lowerQuery)
+    ) {
       return true;
     }
   }
