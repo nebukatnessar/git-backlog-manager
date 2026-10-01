@@ -137,6 +137,8 @@ Rules:
   then open the DRAFT PR; CI and human review exist for exactly this.  
   The draft PR is the safety net, not an excuse to skip level 3/4.
 
+Before pushing, re-read your diff and check: no unused imports/variables introduced, no any/as casts added, no obvious rule violations from the repo's lint config (read eslint.config.js first).
+
 ## CI is the final gate
 
 The repository runs CI (GitHub Actions) on every pull request. If CI fails  

@@ -7,7 +7,6 @@ import {
   fetchWorkflowRunLogsForRef,
   type GitHubCheckAnnotation,
   type GitHubCheckRun,
-  type GitHubPullRequest,
 } from "./github";
 
 const CI_POLL_INTERVAL_MS = Number(process.env.CI_POLL_INTERVAL_MS || 30_000);

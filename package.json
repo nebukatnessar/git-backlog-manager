@@ -1,10 +1,12 @@
 {
   "name": "git-backlog-manager",
   "version": "1.0.0",
+  "type": "module",
   "description": "Adds a layer of control on top of the git ticket system.",
   "main": "dist/server/index.js",
   "scripts": {
     "build": "tsc && esbuild public/app.tsx --bundle --outfile=public/app.js --format=esm",
+    "lint": "eslint src/",
     "test": "tsx --test test/workItems.test.ts",
     "start": "npm run build && node dist/server/index.js"
   },
@@ -32,7 +34,11 @@
     "@types/node": "^24.5.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@typescript-eslint/eslint-plugin": "^8.13.0",
+    "@typescript-eslint/parser": "^8.13.0",
     "esbuild": "^0.25.10",
+    "eslint": "^9.14.0",
+    "typescript-eslint": "^8.13.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }

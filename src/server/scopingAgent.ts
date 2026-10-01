@@ -1,11 +1,9 @@
 import { parseAgentQuestions } from "../shared/agentQuestions";
 import { labelColor } from "./agentLabels";
 import {
-  addIssueLabels,
   ensureLabelsExist,
   fetchIssue,
   fetchIssueComments,
-  removeIssueLabel,
 } from "./github";
 import { appendAgentConversation, startAgentConversation, type ConversationOutputEntry } from "./mistralAgents";
 
