@@ -59,8 +59,7 @@ export async function fetchIssue(token: string, owner: string, repo: string, iss
     token,
     `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`,
   );
-  i
-f (issue.pull_request) throw new GitHubApiError(404, "Issue is a pull request");
+  if (issue.pull_request) throw new GitHubApiError(404, "Issue is a pull request");
   return issue;
 }
 
@@ -101,8 +100,7 @@ export async function removeIssueLabel(token: string, owner: string, repo: strin
 }
 
 export async function fetchPullRequestForBranch(token: string, owner: string, repo: string, branch: string): Promise<GitHubPullRequest | null> {
-  const pulls = await githubF
-etch<GitHubPullRequest[]>(
+  const pulls = await githubFetch<GitHubPullRequest[]>(
     token,
     `https://api.github.com/repos/${owner}/${repo}/pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=all`,
   );

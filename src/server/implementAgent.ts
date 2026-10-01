@@ -58,8 +58,7 @@ export interface AgentRun {
 const runs = new Map<string, AgentRun>();
 
 function runsForIssue(owner: string, repo: string, issueNumber: number): AgentRun[] {
-  return [...runs.values()].filter((run) => run.owner === owner && run.repo === repo && run
-.issueNumber === issueNumber);
+  return [...runs.values()].filter((run) => run.owner === owner && run.repo === repo && run.issueNumber === issueNumber);
 }
 
 export function isRunActiveForIssue(owner: string, repo: string, issueNumber: number): boolean {
@@ -109,8 +108,7 @@ export function buildIssuePrompt(issue: GitHubIssue, owner?: string, repo?: stri
     `Title: ${issue.title}`,
     "",
     "Body:",
-    
-issue.body || "(empty)",
+    issue.body || "(empty)",
     "",
     `Labels: ${labels || "(none)"}`,
     "",
@@ -176,8 +174,7 @@ async function checkRejection(run: AgentRun, githubPat: string): Promise<boolean
   const comments = await fetchIssueComments(githubPat, run.owner, run.repo, run.issueNumber);
   const rejectionComment = [...comments]
     .reverse()
-    .find((comment) => parse
-AgentQuestions(comment.body).length > 0);
+    .find((comment) => parseAgentQuestions(comment.body).length > 0);
 
   if (!rejectionComment) return false;
 
@@ -337,8 +334,7 @@ async function executeRun(run: AgentRun, mistralApiKey: string, agentId: string,
 
 function withTurnTimeout<T>(promise: Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`
-Agent turn exceeded ${TURN_TIMEOUT_MS / 60000} minutes.`)), TURN_TIMEOUT_MS);
+    const timer = setTimeout(() => reject(new Error(`Agent turn exceeded ${TURN_TIMEOUT_MS / 60000} minutes.`)), TURN_TIMEOUT_MS);
     promise.then(
       (value) => {
         clearTimeout(timer);
