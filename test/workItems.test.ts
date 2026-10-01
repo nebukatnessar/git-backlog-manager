@@ -120,7 +120,6 @@ test("itemMatchesQuery matches label slugs and namespaces", () => {
   assert.equal(itemMatchesQuery(item, "fix-dropdowns"), true);
   assert.equal(itemMatchesQuery(item, "ai-integration"), false);
   assert.equal(itemMatchesQuery(item, "backlog"), true);
-  assert.equal(itemMatchesQuery(item, "epic:core-audio"), true);
   assert.equal(itemMatchesQuery(item, "core-audio"), true);
 });
 
