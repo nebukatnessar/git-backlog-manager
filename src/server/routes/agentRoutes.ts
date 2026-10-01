@@ -73,7 +73,7 @@ export function registerAgentRoutes(app: Express, projectDir: string): void {
     if (!patCheck.ok) {
       throw new Error(patCheck.message);
     }
-    console.log(`GITHUB_PAT validated for the MCP agent (login: ${patCheck.login || "unknown"})`);
+    console.log(`Implement agent GitHub token validated for MCP (login: ${patCheck.login || "unknown"})`);
 
     const configuredModel = process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest";
     if (!modelValidated) {
@@ -95,8 +95,8 @@ export function registerAgentRoutes(app: Express, projectDir: string): void {
   async function getScopingAgent(token: string, owner: string, repo: string): Promise<AgentBootstrap> {
     const mistralApiKey = process.env.MISTRAL_API_KEY || "";
     if (!mistralApiKey) throw new Error("MISTRAL_API_KEY is not configured in the server environment.");
-    const githubPat = resolveAgentToken(process.env.GITHUB_PAT || token);
-    if (!githubPat) throw new Error("No GitHub token available. Set AGENT_GITHUB_TOKEN, GITHUB_PAT or GITHUB_TOKEN.");
+    const githubPat = process.env.GITHUB_PAT || token;
+    if (!githubPat) throw new Error("No GitHub token available. Set GITHUB_PAT or GITHUB_TOKEN.");
 
     const cacheKey = `${owner}/${repo}`.toLowerCase();
     if (scopingBootstraps.has(cacheKey)) {
@@ -107,7 +107,7 @@ export function registerAgentRoutes(app: Express, projectDir: string): void {
     if (!patCheck.ok) {
       throw new Error(patCheck.message);
     }
-    console.log(`GITHUB_PAT validated for the MCP agent (login: ${patCheck.login || "unknown"})`);
+    console.log(`Scoping agent GitHub token validated for MCP (login: ${patCheck.login || "unknown"})`);
 
     const configuredModel = process.env.MISTRAL_SCOPING_MODEL || process.env.MISTRAL_AGENT_MODEL || "devstral-2-latest";
     if (!scopingModelValidated) {
@@ -241,7 +241,7 @@ export function registerAgentRoutes(app: Express, projectDir: string): void {
       const run = await startScopingRun(
         process.env.MISTRAL_API_KEY || "",
         bootstrap.agentId,
-        resolveAgentToken(process.env.GITHUB_PAT || token),
+        process.env.GITHUB_PAT || token,
         owner,
         repo,
         issueNumber,
