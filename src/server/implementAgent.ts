@@ -116,14 +116,26 @@ export function buildIssuePrompt(issue: GitHubIssue, owner?: string, repo?: stri
   ].join("\n");
 }
 
-export function buildCiFixPrompt(issue: GitHubIssue, failingCheckRuns: GitHubCheckRun[], failureLogs: string, cycle: number): string {
+export function buildCiFixPrompt(
+  owner: string,
+  repo: string,
+  issue: GitHubIssue,
+  failingCheckRuns: GitHubCheckRun[],
+  failureLogs: string,
+  cycle: number,
+): string {
+  const branch = agentBranchForIssue(issue.number);
   return [
-    `CI failed on the pull request for issue #${issue.number} ("${issue.title}"). This is fix cycle ${cycle} of ${MAX_CI_FIX_CYCLES}.`,
+    `CI failed on the pull request for issue #${issue.number} in the repository ${owner}/${repo} (branch \`${branch}\`). This is fix cycle ${cycle} of ${MAX_CI_FIX_CYCLES}.`,
+    "",
+    `Repository: ${owner}/${repo} - work ONLY in this repository. Do not search other repositories for the fix.`,
+    `Branch: ${branch} - all work belongs on this existing branch.`,
+    `Issue: #${issue.number} ("${issue.title}")`,
     "",
     "Fix the failure and push to the SAME branch and pull request. Do NOT open a new pull request, do NOT rebase away the failing commits.",
     "Reproduce the failure first, fix the smallest thing, and only push a fix you have seen pass in THIS run.",
     "",
-    `Failing checks: ${failingCheckRuns.map((checkRun) => checkRun.name).join(", ")}`,
+    `Failing checks: ${failingCheckRuns.map((checkRun) => `${checkRun.name} (${checkRun.html_url})`).join(", ")}`,
     "",
     "Failure logs (may be truncated):",
     "",
@@ -277,7 +289,7 @@ export async function startCiFixRun(
   runs.set(run.runId, run);
   console.log(`CI fix run ${run.runId} (cycle ${cycle}) started for ${owner}/${repo}#${issueNumber}`);
 
-  void executeRun(run, mistralApiKey, agentId, githubPat, buildCiFixPrompt(issue, failingCheckRuns, failureLogs, cycle)).catch(
+  void executeRun(run, mistralApiKey, agentId, githubPat, buildCiFixPrompt(owner, repo, issue, failingCheckRuns, failureLogs, cycle)).catch(
     async (error) => {
       const message = error instanceof Error ? error.message : String(error);
       await setRunFailed(run, githubPat, message, error);
