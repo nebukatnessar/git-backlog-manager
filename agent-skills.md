@@ -103,8 +103,6 @@ any tool call, know exactly which repository you are in — and stay there.
 - Never open PRs, branches, or commits in a repository other than the
   target, even if a connector makes it easy.
 
----
-
 name: small-diff-review
 description: Load before committing, pushing, or opening a pull request, and whenever reviewing or merging changes.
 

@@ -149,14 +149,21 @@ You are reading this section because CI failed on the PR for this issue
 and the backend relaunched you with the failing run's logs. The backend  
 owns detection, log collection, and the cycle count; you own the fix.
 
-### Reproduce before fixing
+### Diagnose before fixing
 
-- Install and build EXACTLY as CI does: `npm ci` (never `npm install`),  
-  same Node version as CI if you can pick one.
-- Run the CI commands verbatim — do not shorten them, do not substitute  
-  "equivalent" commands.
-- Reproduce the failure in THIS run before writing any fix. If you cannot  
-  reproduce it, say so explicitly rather than guessing at a fix.
+Your execution environment cannot run the project's build or install its  
+dependencies — do not attempt `npm ci`, `npm run build`, or similar, and do  
+not claim you ran them. Verify at the highest level your tools DO support:
+
+- Read the failing file, the exact line/column from the error, and the  
+  surrounding code before proposing anything.
+- For dependency-related errors, read `package.json` for the exact version  
+  in use, then read the dependency's actual type declarations or source  
+  (via your repository tools) and prove your fix compiles against those  
+  signatures. Libraries change APIs between major versions; check the  
+  version you actually have, not the one you remember.
+- Cross-check your diagnosis against the failure log: does your theory  
+  explain the exact error code, file, and line? If not, re-read the code.
 
 ### Fix rules
 
@@ -167,17 +174,21 @@ owns detection, log collection, and the cycle count; you own the fix.
   do NOT "fix" it — report it in the PR body and stop.
 - Push to the SAME branch. Never open a new PR, never rebase or force-push  
   the failure away.
-- Never push a fix that has not passed locally in THIS run. If it passes  
-  locally but you expect CI to disagree, say that in the PR body.
-- One push per relaunch. After you push, your part is done; the backend  
-  will watch CI and decide whether to relaunch you again.
+- Push your fix and END your run. Do not wait for or poll CI: the backend  
+  watches CI and will relaunch you with fresh failure logs if it still  
+  fails. Spend your remaining effort on a careful re-read of the diff  
+  instead of a verification you cannot run.
+- State your verification level honestly in the PR body, e.g.  
+  `Verification level: type-level (toolchain unavailable)` — never claim  
+  a verification you did not perform.
+- One push per relaunch. After you push, your part is done.
 
 ### Stop conditions
 
 - The backend caps you at 3 fix cycles per PR; if you are the third  
   relaunch, make it count and be conservative.
-- If a check passes locally but fails in CI with the same commands, that  
-  contradiction is information — report it with both outputs instead of  
-  pushing speculative changes.
+- If the failure logs are empty, truncated at the point of interest, or  
+  do not match any code you can find, say exactly what is missing instead  
+  of pushing a speculative fix.
 - When in doubt, comment `[question]` on the issue and stop. A clear  
   question beats a wrong fix.
