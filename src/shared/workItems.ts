@@ -81,6 +81,7 @@ export function isValidSlug(value: string): boolean {
 }
 
 export function slugify(value: string): string {
+
   const slug = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
   return slug || "item";
 }
@@ -132,7 +133,8 @@ export function validateCreateWorkItem(input: {
   const slug = slugify(input.slug || title);
   if (!isValidSlug(slug)) return { ok: false, error: "Slug must use lowercase letters, numbers, and hyphens." };
 
-  const epic = (input.epic || "").trim().toLowerCase();
+  const epic = (input.epic || "").trim()
+.toLowerCase();
   const feature = (input.feature || "").trim().toLowerCase();
 
   if (type === "feature" && !isValidSlug(epic)) {
@@ -159,8 +161,10 @@ export function validateCreateWorkItem(input: {
 export function buildCreateLabels(input: CreateWorkItemInput): string[] {
   const labels = [`type:${input.type}`, `status:${input.status}`, `priority:${input.priority}`];
 
-  // Add actionable label based on type
-  if (input.type === "task" || input.type === "bug") {
+  // Add actionable label based on type. Only tasks are created through this
+  // path; bugs arrive as GitHub issues with a type:bug label and never pass
+  // through validateCreateWorkItem (whose type is epic/feature/task).
+  if (input.type === "task") {
     labels.push(`actionable:needs-scoping`);
   } else {
     labels.push(`actionable:not-applicable`);
@@ -196,7 +200,8 @@ export function parseNamespacedLabels(labels: GitHubIssue["labels"]): Record<str
     const namespace = name.slice(0, splitIndex);
     const value = name.slice(splitIndex + 1);
 
-    if (!/^[a-z0-9-]+$/.test(namespace)) continue;
+    if (!/^[a-z0-9-]+$/.test(namespace)) conti
+nue;
     if (!/^[a-z0-9-]+$/.test(value)) continue;
 
     parsed[namespace] = value;
@@ -264,7 +269,8 @@ export function buildWorkItemHierarchy(issues: GitHubIssue[] = []): WorkItemHier
     const epicSlug = issue.labels.epic;
     const featureSlug = issue.labels.feature;
 
-    if (!epicSlug || !featureSlug) {
+    if (!epicSlug || !
+featureSlug) {
       orphanFeatures.push(issue);
       continue;
     }
@@ -326,7 +332,8 @@ export function buildWorkItemHierarchy(issues: GitHubIssue[] = []): WorkItemHier
 
 // New function to assign stack-ranks to items without them
 export function assignStackRanksToItemsWithoutRank(issues: GitHubIssue[]): Array<{ issueNumber: number; stackRank: number }> {
-  const itemsWithoutRank: Array<{ issueNumber: number; stackRank: number }> = [];
+  const itemsWithoutRank: Array<{ issueNumber: number; stackRank: number }> = 
+[];
 
   for (const issue of issues) {
     const currentRank = getStackRankFromLabels(issue.labels);
