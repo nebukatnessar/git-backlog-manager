@@ -1,7 +1,6 @@
 {
   "name": "git-backlog-manager",
   "version": "1.0.0",
-  "type": "module",
   "description": "Adds a layer of control on top of the git ticket system.",
   "main": "dist/server/index.js",
   "scripts": {
