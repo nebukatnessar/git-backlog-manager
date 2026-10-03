@@ -587,7 +587,7 @@ function AppContent(): React.JSX.Element {
           onSelectRepository={selectRepository}
           onRefreshRepositories={loadRepositories}
         />
-        <Box component="main" sx={{ flexGrow: 1, px: { xs: 3, md: 6 }, py: 5, maxWidth: 1300, mx: "auto", width: "100%" }}>
+        <Box component="main" sx={{ flexGrow: 1, px: { xs: 3, md: 6 }, py: 5, mx: "auto", width: "100%" }}>
           {authUser ? (
             <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end" sx={{ mb: -3 }}>
               <Avatar src={authUser.avatarUrl || undefined} alt={authUser.login} sx={{ width: 28, height: 28 }} />
