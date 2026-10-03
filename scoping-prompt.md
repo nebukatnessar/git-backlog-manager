@@ -44,7 +44,8 @@ issue says, from the issue body plus the repository alone.**
    - dependency merged and landed → note that in the refined body;
    - dependency open → this is a `[dependency]` finding (see outcomes).
 3. Check for duplicates: search open issues for the same feature before
-   refining anything.
+   refining anything, but remember type: epic and feature themselfs cannot be implemented!
+   And your parents are not duplicates of you!
 4. Resolve open questions yourself, from the repository, wherever possible.
    If an API or behavior is mentioned but unspecified, find it in the code
    and write the actual signature into the issue. Only escalate a question
