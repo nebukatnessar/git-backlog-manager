@@ -63,21 +63,39 @@ issue says, from the issue body plus the repository alone.**
      exact functions/interfaces to add or modify, with signatures; the
      behavioral rules; the edge cases. Enough that the implement agent
      never has to decide anything.
-   - **Files allowed to touch** — the complete list. For each entry, state
-     whether edits are additive only (e.g. "add `.selected`/`.active`
-     rules to `*.module.css`; do not modify or delete existing rules").
-   - **Out of scope** — interacting features that share this code and must
-     NOT change in this story; any refactor, rename, or file split that is
-     not requested.
    - **Acceptance criteria** — concrete, testable, one behavior each. Each
      must be verifiable by a named check or by direct code reading.
-   - **Verification commands** — the repository's real build/test
-     command(s) at level 1, and the minimum type/syntax check the sandbox
-     can fall back to.
    - **Dependencies / related issues** — current state of each.
+
 6. Preserve anything the author wrote that is still true. You are refining,
    not replacing: keep their intent, their terminology, and their structure
    where it is correct. Flag what you changed and why in the final comment.
+
+## How to change labels (your only label tool REPLACES the whole set)
+
+The only tool you have for changing labels is the update-issue tool, and
+its `labels` parameter REPLACES the issue's entire label set with exactly
+the array you pass. If you pass `["actionable:ready"]`, the issue
+instantly loses its `type:`, `epic:`, `feature:`, `task:`, `status:`,
+`priority:`, and `stack-rank:` labels — destroying the work-item
+hierarchy this system is built on. That is a critical failure, and it
+has happened before. Follow this procedure every single time:
+
+1. Read the issue and record its CURRENT labels, exactly, before you
+   change anything.
+2. Build the new `labels` array as: ALL of those current labels, except
+   any `actionable:*` label, plus the one outcome label
+   (`actionable:ready` or `actionable:rejected`).
+3. Pass that complete array in a single update-issue call. Never pass an
+   array containing only the actionable label. Never pass a subset.
+   Never rename, normalize, or "clean up" labels that are already there.
+4. After the update, read the issue again and verify the label set is
+   exactly what you intended. If any label is missing, immediately
+   update again with the full corrected set.
+
+Passing only a `body` (with no `labels`) never touches labels. Every
+call that includes `labels` must include the full set — there is no way
+to add or remove one label at a time.
 
 ## Outcome protocol
 
@@ -90,9 +108,11 @@ alone:
 
 a. Replace the issue body with the refined version (you ARE allowed and
 expected to edit the issue body — that is the refinement).
-b. Set the label `actionable:ready`; remove `actionable:needs-scoping` or
-`actionable:rejected` if present. Do not change any other label.
-DO NOT REMOVE ANY OTHER LABEL
+b. Change the labels by the procedure in "How to change labels": the
+final set is every label the issue had, minus any `actionable:*` label,
+plus `actionable:ready`. Nothing else may appear or disappear — the
+issue keeps its `type:`, `epic:`, `feature:`, `task:`, `status:`,
+`priority:`, and `stack-rank:` labels.
 c. Post exactly ONE comment wrapped in the exact marker
 `<!-- AI_CONVERSATION -->` containing:
 
@@ -108,7 +128,9 @@ c. Post exactly ONE comment wrapped in the exact marker
 
 The story needs something the repository cannot supply:
 
-a. Set the label `actionable:rejected`.
+a. Change the labels by the procedure in "How to change labels": the
+final set is every label the issue had, minus any `actionable:*` label,
+plus `actionable:rejected`. The issue keeps every other label it had.
 b. Post exactly ONE comment wrapped in `<!-- AI_CONVERSATION -->`, listing
 what is missing, one per line, each prefixed with:
 
@@ -138,9 +160,12 @@ c. Stop.
   features. If you find an adjacent improvement, mention it in the
   comment as a suggestion — do not put it in the body.
 - Do not change the issue title.
-- Change only these labels: `actionable:ready`, `actionable:needs-scoping`,
-  `actionable:rejected`.
-- DO NOT REMOVE ANY OTHER LABELS
+- The only labels you may add or remove are `actionable:ready` and
+  `actionable:rejected` (plus removing a stale `actionable:*` label).
+  Every other label must survive your run unchanged. Because the
+  update-issue tool REPLACES the whole label set, "unchanged" means you
+  must re-pass every one of them in the `labels` array and then verify
+  the result by re-reading the issue.
 - The comment is machine-read by the implement agent's kickoff: keep the
   `<!-- AI_CONVERSATION -->` marker exact, one comment, no follow-ups.
 - If outputs contradict each other (a SHA command returning prose, the

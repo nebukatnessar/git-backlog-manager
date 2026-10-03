@@ -81,7 +81,7 @@ function buildScopingPrompt(issueBody: string, issueTitle: string, issueNumber: 
     "Body:",
     issueBody || "(empty)",
     "",
-    "Inspect the repository as needed, then follow the outcome protocol: label the issue actionable:ready or actionable:rejected and post the single wrapped comment.",
+    "Inspect the repository as needed, then follow the outcome protocol: label the issue actionable:ready or actionable:rejected and post the single wrapped comment. Your update-issue tool REPLACES the whole label set: pass every current label plus the new actionable label, then re-read the issue and verify nothing was lost.",
   ].join("\n");
 }
 
@@ -181,7 +181,7 @@ async function executeScopingRun(
 
       console.log(`Scoping run ${run.runId} turn ${turn}: no outcome yet, asking the agent to continue`);
       const appended = await withTurnTimeout(
-        appendAgentConversation(mistralApiKey, conversation.conversationId, "Continue: inspect the repository and the issue, then apply the outcome protocol now — label the issue and post the single wrapped comment. Do not stop to narrate; act."),
+        appendAgentConversation(mistralApiKey, conversation.conversationId, "Continue: inspect the repository and the issue, then apply the outcome protocol now — label the issue and post the single wrapped comment. Do not stop to narrate; act. When labeling, include every existing label plus the new actionable label (your label update replaces the whole set), then verify nothing was lost."),
         SCOPING_TURN_TIMEOUT_MS,
         "Scoping turn",
       );
