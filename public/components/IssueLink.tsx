@@ -26,7 +26,7 @@ export function IssueLink({ issue, onClick, onImplement, implementingIssue, onSc
   };
 
   return (
-    <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 0.7, flexWrap: "wrap" }}>
+    <Stack direction="row" spacing={1} alignItems="center" useFlexGap sx={{ py: 0.7, flexWrap: "wrap" }}>
       <Typography
         component={onClick ? "button" : "a"}
         href={onClick ? undefined : issue.html_url}
@@ -108,7 +108,7 @@ export function IssueLink({ issue, onClick, onImplement, implementingIssue, onSc
               event.stopPropagation();
               onScope(issue.number);
             }}
-            sx={{ ml: onImplement && issue.labels.actionable === "ready" ? 1 : "auto", minHeight: 24, fontSize: "0.75rem" }}
+            sx={{ ml: "auto", minHeight: 24, fontSize: "0.75rem" }}
           >
             {scopingIssue === issue.number ? "Scoping…" : "Scope"}
           </Button>

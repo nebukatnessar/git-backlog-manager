@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Avatar, Box, Button, Chip, Paper, Stack, Tooltip, Typography } from "@mui/material";
+import { Avatar, Box, Button, Paper, Stack, Tooltip, Typography } from "@mui/material";
 import { Add, ChevronRight, ExpandMore, ExpandLess, FolderOpen } from "@mui/icons-material";
 import { type Epic, type Feature } from "../../src/shared/workItems";
 import { IssueLink } from "./IssueLink";
@@ -73,13 +73,15 @@ function FeatureBlock({ feature, onAddTask, onViewItem, isExpanded, onToggle, in
           </Typography>
         </Box>
         <Tooltip title="Add task">
-          <Chip
-            icon={<Add fontSize="small" />}
-            label="Add"
+          <Button
             size="small"
+            variant="outlined"
+            startIcon={<Add fontSize="small" />}
             onClick={onAddTask}
-            sx={{ cursor: "pointer", borderColor: "divider", color: "text.secondary" }}
-          />
+            sx={{ minHeight: 24, fontSize: "0.75rem" }}
+          >
+            Add
+          </Button>
         </Tooltip>
       </Stack>
       {isExpanded && (
@@ -161,13 +163,15 @@ function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onTo
           </Typography>
         </Box>
         <Tooltip title="Add feature">
-          <Chip
-            icon={<Add fontSize="small" />}
-            label="Add"
+          <Button
             size="small"
+            variant="outlined"
+            startIcon={<Add fontSize="small" />}
             onClick={() => onAddFeature(epic.slug)}
-            sx={{ cursor: "pointer", borderColor: "divider", color: "text.secondary" }}
-          />
+            sx={{ minHeight: 24, fontSize: "0.75rem" }}
+          >
+            Add
+          </Button>
         </Tooltip>
       </Stack>
       {isExpanded && (
