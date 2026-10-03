@@ -508,6 +508,33 @@ function AppContent(): React.JSX.Element {
     }
   }, [selectedRepo, owner, storeState.issues, dispatch]);
 
+  const handleStackRankChange = useCallback(async (issueNumber: number, stackRank: number) => {
+    if (!selectedRepo) return;
+    try {
+      const issue = storeState.issues[issueNumber];
+      if (!issue) {
+        throw new Error("Issue not found in store");
+      }
+
+      // Optimistic update
+      const previousLabels = { ...issue.labels };
+      dispatch(applyLabelChange(issueNumber, "stack-rank", String(stackRank)));
+
+      const response = await fetch(
+        `/api/repos/${encodeURIComponent(selectedRepo)}/issues/${issueNumber}/label/stack-rank:${stackRank}?owner=${encodeURIComponent(owner)}`,
+        { method: "POST" }
+      );
+      if (!response.ok) {
+        // Revert on failure
+        dispatch(rollbackLabels(issueNumber, previousLabels));
+        const body = await response.json();
+        throw new Error([body.error, body.details].filter(Boolean).join(" ") || "Could not update stack-rank");
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
+  }, [selectedRepo, owner, storeState.issues, dispatch]);
+
   const handleLogout = useCallback(async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
@@ -635,6 +662,7 @@ function AppContent(): React.JSX.Element {
               onStatusChange={handleStatusChange}
               onPriorityChange={handlePriorityChange}
               onActionableChange={handleActionableChange}
+              onStackRankChange={handleStackRankChange}
               onRunFinished={handleRunFinished}
             />
           )}

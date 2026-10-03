@@ -8,3 +8,5 @@ export * from "./WorkItemDetail";
 export * from "./AIAssistantPanel";
 export * from "./AgentRunPanel";
 export * from "./AgentsPopup";
+export * from "./TaskGrid";
+export * from "./stackRankDragOrder";

@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
-import { Box, Button, CircularProgress, Stack, Typography, TextField, InputAdornment, IconButton } from "@mui/material";
+import { Box, Button, CircularProgress, Stack, ToggleButton, ToggleButtonGroup, Typography, TextField, InputAdornment, IconButton } from "@mui/material";
 import { SmartToy, Search, Clear } from "@mui/icons-material";
 import { type WorkItem, type Epic, type Feature } from "../../src/shared/workItems";
 import { itemMatchesQuery } from "../../src/shared/workItems";
 import { MetricsBar } from "./MetricsBar";
 import { WorkItemHierarchy } from "./WorkItemHierarchy";
 import { BugsPanel } from "./BugsPanel";
+import { TaskGrid } from "./TaskGrid";
 import { WorkItemDetail } from "./WorkItemDetail";
 import { AgentsPopup } from "./AgentsPopup";
 import { FilterDialog } from "./FilterDialog";
@@ -53,6 +54,7 @@ interface RepositoryContentProps {
   onStatusChange?: (issueNumber: number, status: string) => Promise<void>;
   onPriorityChange?: (issueNumber: number, priority: string) => Promise<void>;
   onActionableChange?: (issueNumber: number, actionable: string) => Promise<void>;
+  onStackRankChange?: (issueNumber: number, stackRank: number) => Promise<void>;
   onRunFinished?: () => Promise<void>;
 }
 
@@ -182,9 +184,17 @@ export function RepositoryContent({
   onStatusChange,
   onPriorityChange,
   onActionableChange,
+  onStackRankChange,
   onRunFinished,
 }: RepositoryContentProps): React.JSX.Element {
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"hierarchy" | "grid">(() => {
+    try {
+      return window.localStorage.getItem("backlogManager.viewMode") === "grid" ? "grid" : "hierarchy";
+    } catch {
+      return "hierarchy";
+    }
+  });
   const [filters, setFilters] = useState<FilterState>({
     githubState: state as "open" | "closed" | "all",
     statusLabels: [],
@@ -225,6 +235,17 @@ export function RepositoryContent({
     // Map githubState to the existing state prop for backward compatibility
     onStateChange(newFilters.githubState);
   }, [onStateChange]);
+
+  // Handle view mode changes, persisting the choice across visits
+  const handleViewModeChange = useCallback((_: React.MouseEvent<HTMLElement>, value: string | null) => {
+    if (!value) return;
+    setViewMode(value);
+    try {
+      window.localStorage.setItem("backlogManager.viewMode", value);
+    } catch {
+      // Ignore storage failures (e.g. blocked cookies or private browsing)
+    }
+  }, []);
 
   // Filter the epics, features, and tasks based on the current filters and search query
   const filteredData = useMemo(() => {
@@ -278,6 +299,19 @@ export function RepositoryContent({
       },
     };
   }, [data, filters, debouncedSearch]);
+
+  // Flatten tasks and features for the task grid view
+  const gridTasks = useMemo(() => {
+    if (!filteredData) return [];
+    return filteredData.hierarchy.epics.flatMap((epic) =>
+      epic.features.flatMap((feature) => feature.tasks)
+    );
+  }, [filteredData]);
+
+  const gridFeatures = useMemo(() => {
+    if (!filteredData) return [];
+    return filteredData.hierarchy.epics.flatMap((epic) => epic.features);
+  }, [filteredData]);
 
   // If we're viewing a specific work item detail
   if (workItemId !== undefined && onBackFromDetail) {
@@ -374,6 +408,15 @@ export function RepositoryContent({
             sx={{ width: 250 }}
           />
           <FilterDialog owner={owner} repo={selectedRepo} onApplyFilters={handleApplyFilters} />
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={viewMode}
+            onChange={handleViewModeChange}
+          >
+            <ToggleButton value="hierarchy">Hierarchy</ToggleButton>
+            <ToggleButton value="grid">Task Grid</ToggleButton>
+          </ToggleButtonGroup>
           <Button
             variant="outlined"
             startIcon={<SmartToy />}
@@ -393,18 +436,30 @@ export function RepositoryContent({
         <>
           <MetricsBar issues={filteredData.totals.issues} epics={filteredData.totals.epics} bugs={filteredData.totals.bugs} />
           <Stack direction={{ xs: "column", lg: "row" }} spacing={3} alignItems="flex-start">
-            <WorkItemHierarchy
-              epics={filteredData.hierarchy.epics}
-              onAddEpic={onAddEpic}
-              onAddFeature={onAddFeature}
-              onAddTask={onAddTask}
-              onViewItem={onViewItem}
-              onImplement={onImplement}
-              implementingIssue={implementingIssue}
-              onScope={onScope}
-              scopingIssue={scopingIssue}
-              repo={selectedRepo}
-            />
+            {viewMode === "grid" ? (
+              <TaskGrid
+                tasks={gridTasks}
+                epics={filteredData.hierarchy.epics}
+                features={gridFeatures}
+                onViewItem={onViewItem}
+                onStackRankChange={onStackRankChange}
+                repo={selectedRepo}
+              />
+            ) : (
+              <WorkItemHierarchy
+                epics={filteredData.hierarchy.epics}
+                onAddEpic={onAddEpic}
+                onAddFeature={onAddFeature}
+                onAddTask={onAddTask}
+                onViewItem={onViewItem}
+                onImplement={onImplement}
+                implementingIssue={implementingIssue}
+                onScope={onScope}
+                scopingIssue={scopingIssue}
+                onStackRankChange={onStackRankChange}
+                repo={selectedRepo}
+              />
+            )}
             <BugsPanel bugs={filteredData.hierarchy.bugs} onViewItem={onViewItem} />
           </Stack>
         </>

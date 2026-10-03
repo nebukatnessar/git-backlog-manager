@@ -3,6 +3,7 @@ import { Avatar, Box, Button, Paper, Stack, Tooltip, Typography } from "@mui/mat
 import { Add, ChevronRight, ExpandMore, ExpandLess, FolderOpen } from "@mui/icons-material";
 import { type Epic, type Feature } from "../../src/shared/workItems";
 import { IssueLink } from "./IssueLink";
+import { useStackRankDragOrder, type StackRankDragOrder } from "./stackRankDragOrder";
 
 interface WorkItemHierarchyProps {
   epics: Epic[];
@@ -14,6 +15,7 @@ interface WorkItemHierarchyProps {
   implementingIssue?: number | null;
   onScope?: (issueNumber: number) => void;
   scopingIssue?: number | null;
+  onStackRankChange?: (issueNumber: number, stackRank: number) => Promise<void>;
   repo?: string;
 }
 
@@ -28,11 +30,37 @@ interface FeatureBlockProps {
   implementingIssue?: number | null;
   onScope?: (issueNumber: number) => void;
   scopingIssue?: number | null;
+  onStackRankChange?: (issueNumber: number, stackRank: number) => Promise<void>;
+  featureIndex: number;
+  featureDragOrder: StackRankDragOrder;
 }
 
-function FeatureBlock({ feature, onAddTask, onViewItem, isExpanded, onToggle, indentLevel, onImplement, implementingIssue, onScope, scopingIssue }: FeatureBlockProps): React.JSX.Element {
+function FeatureBlock({ feature, onAddTask, onViewItem, isExpanded, onToggle, indentLevel, onImplement, implementingIssue, onScope, scopingIssue, onStackRankChange, featureIndex, featureDragOrder }: FeatureBlockProps): React.JSX.Element {
+  const taskDragOrder = useStackRankDragOrder(feature.tasks, onStackRankChange);
+
   return (
-    <Box sx={{ ml: indentLevel, pl: 2, borderLeft: "1px solid", borderColor: "divider", py: 1 }}>
+    <Box
+      sx={{
+        ml: indentLevel,
+        pl: 2,
+        borderLeft: "1px solid",
+        borderColor: "divider",
+        py: 1,
+        ...(featureDragOrder.canReorder ? {
+          cursor: "grab",
+          ...(featureDragOrder.draggedNumber === feature.number ? { opacity: 0.5 } : {}),
+          ...(featureDragOrder.dropIndex === featureIndex ? { borderTop: "2px solid", borderTopColor: "primary.main" } : {}),
+          ...(featureDragOrder.dropIndex === featureDragOrder.length && featureIndex === featureDragOrder.length - 1
+            ? { borderBottom: "2px solid", borderBottomColor: "primary.main" }
+            : {}),
+        } : {}),
+      }}
+      draggable={featureDragOrder.canReorder}
+      onDragStart={featureDragOrder.canReorder ? (event) => featureDragOrder.handleDragStart(event, featureIndex) : undefined}
+      onDragOver={featureDragOrder.canReorder ? (event) => featureDragOrder.handleDragOver(event, featureIndex) : undefined}
+      onDrop={featureDragOrder.canReorder ? (event) => featureDragOrder.handleDrop(event) : undefined}
+      onDragEnd={featureDragOrder.canReorder ? featureDragOrder.handleDragEnd : undefined}
+    >
       <Stack direction="row" alignItems="center" spacing={1}>
         <Box
           component="button"
@@ -86,16 +114,32 @@ function FeatureBlock({ feature, onAddTask, onViewItem, isExpanded, onToggle, in
       </Stack>
       {isExpanded && (
         <Box sx={{ mt: 0.5, ml: 4.25 }}>
-          {feature.tasks.map((task) => (
-            <IssueLink
+          {feature.tasks.map((task, index) => (
+            <Box
               key={task.number}
-              issue={task}
-              onClick={onViewItem ? () => onViewItem(task.number) : undefined}
-              onImplement={onImplement}
-              implementingIssue={implementingIssue}
-              onScope={onScope}
-              scopingIssue={scopingIssue}
-            />
+              draggable={taskDragOrder.canReorder}
+              onDragStart={taskDragOrder.canReorder ? (event) => taskDragOrder.handleDragStart(event, index) : undefined}
+              onDragOver={taskDragOrder.canReorder ? (event) => taskDragOrder.handleDragOver(event, index) : undefined}
+              onDrop={taskDragOrder.canReorder ? (event) => taskDragOrder.handleDrop(event) : undefined}
+              onDragEnd={taskDragOrder.canReorder ? taskDragOrder.handleDragEnd : undefined}
+              sx={{
+                ...(taskDragOrder.canReorder ? { cursor: "grab" } : {}),
+                ...(taskDragOrder.draggedNumber === task.number ? { opacity: 0.5 } : {}),
+                ...(taskDragOrder.dropIndex === index ? { borderTop: "2px solid", borderTopColor: "primary.main" } : {}),
+                ...(taskDragOrder.dropIndex === taskDragOrder.length && index === taskDragOrder.length - 1
+                  ? { borderBottom: "2px solid", borderBottomColor: "primary.main" }
+                  : {}),
+              }}
+            >
+              <IssueLink
+                issue={task}
+                onClick={onViewItem ? () => onViewItem(task.number) : undefined}
+                onImplement={onImplement}
+                implementingIssue={implementingIssue}
+                onScope={onScope}
+                scopingIssue={scopingIssue}
+              />
+            </Box>
           ))}
         </Box>
       )}
@@ -114,13 +158,38 @@ interface EpicBlockProps {
   implementingIssue?: number | null;
   onScope?: (issueNumber: number) => void;
   scopingIssue?: number | null;
+  onStackRankChange?: (issueNumber: number, stackRank: number) => Promise<void>;
   expandedFeatures: Record<string, boolean>;
   onFeatureToggle: (featureSlug: string) => void;
+  epicIndex: number;
+  epicDragOrder: StackRankDragOrder;
 }
 
-function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onToggle, onImplement, implementingIssue, onScope, scopingIssue, expandedFeatures, onFeatureToggle }: EpicBlockProps): React.JSX.Element {
+function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onToggle, onImplement, implementingIssue, onScope, scopingIssue, expandedFeatures, onFeatureToggle, onStackRankChange, epicIndex, epicDragOrder }: EpicBlockProps): React.JSX.Element {
+  const featureDragOrder = useStackRankDragOrder(epic.features, onStackRankChange);
+
   return (
-    <Box key={epic.number} sx={{ py: 1.5, borderTop: "1px solid", borderColor: "divider" }}>
+    <Box
+      key={epic.number}
+      sx={{
+        py: 1.5,
+        borderTop: "1px solid",
+        borderColor: "divider",
+        ...(epicDragOrder.canReorder ? {
+          cursor: "grab",
+          ...(epicDragOrder.draggedNumber === epic.number ? { opacity: 0.5 } : {}),
+          ...(epicDragOrder.dropIndex === epicIndex ? { borderTop: "2px solid", borderTopColor: "primary.main" } : {}),
+          ...(epicDragOrder.dropIndex === epicDragOrder.length && epicIndex === epicDragOrder.length - 1
+            ? { borderBottom: "2px solid", borderBottomColor: "primary.main" }
+            : {}),
+        } : {}),
+      }}
+      draggable={epicDragOrder.canReorder}
+      onDragStart={epicDragOrder.canReorder ? (event) => epicDragOrder.handleDragStart(event, epicIndex) : undefined}
+      onDragOver={epicDragOrder.canReorder ? (event) => epicDragOrder.handleDragOver(event, epicIndex) : undefined}
+      onDrop={epicDragOrder.canReorder ? (event) => epicDragOrder.handleDrop(event) : undefined}
+      onDragEnd={epicDragOrder.canReorder ? epicDragOrder.handleDragEnd : undefined}
+    >
       <Stack direction="row" spacing={1.5} alignItems="center">
         <Box
           component="button"
@@ -176,7 +245,7 @@ function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onTo
       </Stack>
       {isExpanded && (
         <>
-          {epic.features.map((feature) => (
+          {epic.features.map((feature, index) => (
             <FeatureBlock
               key={feature.number}
               feature={feature}
@@ -189,6 +258,9 @@ function EpicBlock({ epic, onAddFeature, onAddTask, onViewItem, isExpanded, onTo
               implementingIssue={implementingIssue}
               onScope={onScope}
               scopingIssue={scopingIssue}
+              onStackRankChange={onStackRankChange}
+              featureIndex={index}
+              featureDragOrder={featureDragOrder}
             />
           ))}
         </>
@@ -228,10 +300,12 @@ export function WorkItemHierarchy({
   implementingIssue,
   onScope,
   scopingIssue,
+  onStackRankChange,
   repo,
 }: WorkItemHierarchyProps): React.JSX.Element {
   const [expandedEpics, setExpandedEpics] = useState<Record<string, boolean>>({});
   const [expandedFeatures, setExpandedFeatures] = useState<Record<string, boolean>>({});
+  const epicDragOrder = useStackRankDragOrder(epics, onStackRankChange);
 
   // Initialize all epics and features as expanded
   useEffect(() => {
@@ -300,7 +374,7 @@ export function WorkItemHierarchy({
           </Button>
         </Stack>
       </Stack>
-      {epics.map((epic) => (
+      {epics.map((epic, index) => (
         <EpicBlock
           key={epic.number}
           epic={epic}
@@ -313,8 +387,11 @@ export function WorkItemHierarchy({
           implementingIssue={implementingIssue}
           onScope={onScope}
           scopingIssue={scopingIssue}
+          onStackRankChange={onStackRankChange}
           expandedFeatures={expandedFeatures}
           onFeatureToggle={(featureSlug: string) => toggleFeature(epic.slug, featureSlug)}
+          epicIndex={index}
+          epicDragOrder={epicDragOrder}
         />
       ))}
       {!epics.length && (

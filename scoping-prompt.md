@@ -92,6 +92,7 @@ a. Replace the issue body with the refined version (you ARE allowed and
 expected to edit the issue body — that is the refinement).
 b. Set the label `actionable:ready`; remove `actionable:needs-scoping` or
 `actionable:rejected` if present. Do not change any other label.
+DO NOT REMOVE ANY OTHER LABEL
 c. Post exactly ONE comment wrapped in the exact marker
 `<!-- AI_CONVERSATION -->` containing:
 
@@ -139,6 +140,7 @@ c. Stop.
 - Do not change the issue title.
 - Change only these labels: `actionable:ready`, `actionable:needs-scoping`,
   `actionable:rejected`.
+- DO NOT REMOVE ANY OTHER LABELS
 - The comment is machine-read by the implement agent's kickoff: keep the
   `<!-- AI_CONVERSATION -->` marker exact, one comment, no follow-ups.
 - If outputs contradict each other (a SHA command returning prose, the
