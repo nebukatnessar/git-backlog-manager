@@ -1,6 +1,8 @@
 import { parseAgentQuestions } from "../shared/agentQuestions";
+import { type GitHubIssue } from "../shared/workItems";
 import { labelColor } from "./agentLabels";
 import {
+  addIssueLabels,
   ensureLabelsExist,
   fetchIssue,
   fetchIssueComments,
@@ -85,6 +87,42 @@ function buildScopingPrompt(issueBody: string, issueTitle: string, issueNumber: 
   ].join("\n");
 }
 
+function labelNames(issue: GitHubIssue): string[] {
+  return (issue.labels || [])
+    .map((label) => (typeof label === "string" ? label : label.name || ""))
+    .filter(Boolean);
+}
+
+// The agent may only change the actionable: namespace; everything else must
+// survive the run. This snapshot is the baseline restored after the run.
+async function snapshotProtectedLabels(githubPat: string, owner: string, repo: string, issueNumber: number): Promise<string[]> {
+  const issue = await fetchIssue(githubPat, owner, repo, issueNumber);
+  return labelNames(issue).filter((name) => !name.toLowerCase().startsWith("actionable:"));
+}
+
+async function restoreMissingLabels(run: ScopingRun, githubPat: string, snapshotLabels: string[]): Promise<void> {
+  if (!snapshotLabels.length) return;
+
+  let currentNames: string[];
+  try {
+    const issue = await fetchIssue(githubPat, run.owner, run.repo, run.issueNumber);
+    currentNames = labelNames(issue);
+  } catch (error) {
+    console.error(
+      `Scoping run ${run.runId}: could not verify labels on issue #${run.issueNumber}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return;
+  }
+
+  const currentSet = new Set(currentNames.map((name) => name.toLowerCase()));
+  const missing = snapshotLabels.filter((name) => !currentSet.has(name.toLowerCase()));
+  if (!missing.length) return;
+
+  console.warn(`Scoping run ${run.runId}: agent dropped labels [${missing.join(", ")}] from issue #${run.issueNumber}; restoring them`);
+  await addIssueLabels(githubPat, run.owner, run.repo, run.issueNumber, missing);
+}
+
 async function checkOutcome(run: ScopingRun, githubPat: string): Promise<boolean> {
   const issue = await fetchIssue(githubPat, run.owner, run.repo, run.issueNumber);
   const labels = (issue.labels || []).map((label) =>
@@ -137,6 +175,7 @@ export async function startScopingRun(
   }
 
   await ensureLabelsExist(githubPat, owner, repo, ["actionable:ready", "actionable:rejected"], labelColor);
+  const protectedLabels = await snapshotProtectedLabels(githubPat, owner, repo, issueNumber);
 
   const run: ScopingRun = {
     runId: `scope-${issueNumber}-${Date.now()}`,
@@ -149,10 +188,19 @@ export async function startScopingRun(
   scopingRuns.set(run.runId, run);
   console.log(`Scoping run ${run.runId} started for ${owner}/${repo}#${issueNumber}`);
 
-  void executeScopingRun(run, mistralApiKey, agentId, githubPat, issueTitle, issueBody).catch(async (error) => {
-    const message = error instanceof Error ? error.message : String(error);
-    await failRun(run, githubPat, message, error);
-  });
+  void executeScopingRun(run, mistralApiKey, agentId, githubPat, issueTitle, issueBody)
+    .catch(async (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      await failRun(run, githubPat, message, error);
+    })
+    .finally(() => {
+      void restoreMissingLabels(run, githubPat, protectedLabels).catch((error) => {
+        console.error(
+          `Scoping run ${run.runId}: failed to restore labels on issue #${issueNumber}:`,
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+    });
 
   return run;
 }
